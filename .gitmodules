@@ -1,0 +1,27 @@
+[submodule "libs/diffusers"]
+	path = libs/diffusers
+	url = https://ghfast.top/https://github.com/huggingface/diffusers.git
+
+[submodule "libs/transformers"]
+	path = libs/transformers
+	url = https://ghfast.top/https://github.com/huggingface/transformers.git
+
+[submodule "libs/unidiffuser"]
+	path = libs/unidiffuser
+	url = https://ghfast.top/https://github.com/thu-ml/unidiffuser.git
+
+[submodule "libs/u-vit"]
+	path = libs/u-vit
+	url = https://ghfast.top/https://github.com/baofff/U-ViT.git
+
+[submodule "libs/rf-solver-edit"]
+	path = libs/rf-solver-edit
+	url = https://ghfast.top/https://github.com/wangjiangshan0725/RF-Solver-Edit.git
+
+[submodule "libs/prompt-to-prompt"]
+	path = libs/prompt-to-prompt
+	url = https://ghfast.top/https://github.com/google/prompt-to-prompt.git
+
+[submodule "libs/rf-inversion"]
+	path = libs/rf-inversion
+	url = https://ghfast.top/https://github.com/LituRout/RF-Inversion.git
