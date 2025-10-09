@@ -22,6 +22,7 @@ def generate_image(
     width: Optional[int] = None,
     height: Optional[int] = None,
     seed: int = -1,
+    scheduler: Optional[str] = None,
     progress_callback: Optional[Callable] = None,
 ) -> Tuple[Optional[Image.Image], str, int]:
     """Generate a single image with a specific model.
@@ -35,6 +36,7 @@ def generate_image(
         width: Image width
         height: Image height
         seed: Random seed (-1 for random)
+        scheduler: Scheduler name (e.g., "EulerDiscreteScheduler")
         progress_callback: Optional callback for progress updates
 
     Returns:
@@ -66,8 +68,8 @@ def generate_image(
                 progress_callback(f"Loading {model_id}...")
             pipe = manager.load_model(model_id)
 
-        # Set unified scheduler if specified in DEFAULT_CONFIG
-        scheduler_name = DEFAULT_CONFIG.get("scheduler")
+        # Set scheduler (use provided scheduler or fall back to DEFAULT_CONFIG)
+        scheduler_name = scheduler or DEFAULT_CONFIG.get("scheduler")
         if scheduler_name and hasattr(pipe, "scheduler"):
             if scheduler_name == "EulerDiscreteScheduler":
                 pipe.scheduler = EulerDiscreteScheduler.from_config(
@@ -123,6 +125,7 @@ def generate_images_sequential(
     width: Optional[int] = None,
     height: Optional[int] = None,
     seed: int = -1,
+    scheduler: Optional[str] = None,
     progress_callback: Optional[Callable] = None,
 ) -> List[Tuple[str, Optional[Image.Image], str, int]]:
     """Generate images sequentially with multiple models.
@@ -136,6 +139,7 @@ def generate_images_sequential(
         width: Image width
         height: Image height
         seed: Random seed (-1 for random)
+        scheduler: Scheduler name (e.g., "EulerDiscreteScheduler")
         progress_callback: Optional callback for progress updates
 
     Returns:
@@ -161,6 +165,7 @@ def generate_images_sequential(
             width=width,
             height=height,
             seed=base_seed,
+            scheduler=scheduler,
             progress_callback=progress_callback,
         )
 

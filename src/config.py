@@ -4,10 +4,10 @@ Configuration file for model definitions and default parameters.
 
 # Model definitions with metadata
 MODELS = {
-    "stabilityai/stable-diffusion-2-1": {
+    "stabilityai/stable-diffusion-2-1-base": {
         "name": "Stable Diffusion 2.1",
         "short_name": "SD 2.1",
-        "requires_safety_checker": True,
+        "requires_safety_checker": False,
         "pipeline_class": "StableDiffusionPipeline",
     },
     "stabilityai/stable-diffusion-xl-base-1.0": {
@@ -92,7 +92,7 @@ MODELS = {
 
 # Default models to load on startup
 DEFAULT_MODELS = [
-    "stabilityai/stable-diffusion-2-1",
+    "stabilityai/stable-diffusion-2-1-base",
     "stabilityai/stable-diffusion-xl-base-1.0",
     "stabilityai/stable-cascade",
     "stabilityai/stable-diffusion-3-medium-diffusers",
@@ -101,7 +101,7 @@ DEFAULT_MODELS = [
 # Default generation parameters
 DEFAULT_CONFIG = {
     "num_inference_steps": 50,
-    "guidance_scale": 1.0,  # 1.0 = no CFG amplification (2x faster)
+    "guidance_scale": 7.5,  # Classifier-free guidance scale for prompt adherence
     "width": 512,
     "height": 512,
     "seed": -1,  # -1 means random
@@ -122,3 +122,6 @@ IMAGE_SIZE_PRESETS = {
 
 # Output directory
 OUTPUT_DIR = "outputs"
+
+# Local model folder path
+LOCAL_MODEL_DIR = "/data/liuzicheng/zhenyuan/models"

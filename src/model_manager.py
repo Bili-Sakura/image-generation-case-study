@@ -3,11 +3,12 @@ Model manager for loading and managing diffusion pipelines.
 """
 
 import torch
+import os
 from typing import Dict, List, Optional
 from diffusers import DiffusionPipeline
 import gc
 
-from src.config import MODELS, DEFAULT_MODELS
+from src.config import MODELS, DEFAULT_MODELS, LOCAL_MODEL_DIR
 from src.utils import get_device
 
 
@@ -23,6 +24,31 @@ class ModelManager:
         self.device = device or get_device()
         self.loaded_models: Dict[str, DiffusionPipeline] = {}
         self.model_configs = MODELS
+        self.local_model_dir = LOCAL_MODEL_DIR
+
+    def _get_local_model_path(self, model_id: str) -> str:
+        """Get the local model path if it exists, otherwise return the original model_id.
+
+        Args:
+            model_id: HuggingFace model ID or local path
+
+        Returns:
+            Local path if it exists, otherwise the original model_id
+        """
+        # If it's already a full path, return as is
+        if os.path.isabs(model_id):
+            return model_id
+
+        # Check if model exists in local directory
+        local_path = os.path.join(self.local_model_dir, model_id)
+
+        # If model exists locally, use the local path
+        if os.path.exists(local_path):
+            print(f"Using local model: {local_path}")
+            return local_path
+
+        # Otherwise, use the original HuggingFace model ID
+        return model_id
 
     def load_model(
         self, model_id: str, force_reload: bool = False
@@ -48,9 +74,12 @@ class ModelManager:
         print(f"Loading model: {model_id}")
 
         try:
-            # Load the pipeline
+            # Check if local model exists
+            local_model_path = self._get_local_model_path(model_id)
+
+            # Load the pipeline from local path if available, otherwise from HuggingFace
             pipe = DiffusionPipeline.from_pretrained(
-                model_id,
+                local_model_path,
                 torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                 use_safetensors=True,
             )

@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 import torch
 from PIL import Image
+from src.config import MODELS
 
 
 def setup_output_dir(base_dir: str = "outputs") -> Path:
@@ -30,9 +31,16 @@ def save_image(
     """Save generated image with metadata."""
     output_dir = get_model_output_dir(model_id, base_dir)
 
-    # Create filename with timestamp and seed
+    # Get model short name for filename
+    model_info = MODELS.get(model_id, {})
+    model_short_name = model_info.get("short_name", model_id)
+
+    # Sanitize model name for filename (replace spaces and special chars)
+    safe_model_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in model_short_name)
+
+    # Create filename with model name, timestamp and seed
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{timestamp}_seed{seed}.png"
+    filename = f"{safe_model_name}_{timestamp}_seed{seed}.png"
     filepath = output_dir / filename
 
     # Save image
@@ -95,8 +103,6 @@ def estimate_memory_usage(model_id: str) -> str:
 
 def format_model_info(model_id: str, loaded: bool = False) -> str:
     """Format model information for display."""
-    from src.config import MODELS
-
     model_info = MODELS.get(model_id, {})
     name = model_info.get("short_name", model_id)
     memory = estimate_memory_usage(model_id)
