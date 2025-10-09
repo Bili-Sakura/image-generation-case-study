@@ -22,13 +22,13 @@ MODELS = {
         "requires_safety_checker": False,
         "pipeline_class": "CogView3PlusPipeline",
     },
-    "PixArt-alpha/PixArt-XL-2-1024-MS": {
+    "PixArt-alpha/PixArt-XL-2-512x512": {
         "name": "PixArt-XL 2",
         "short_name": "PixArt-XL",
         "requires_safety_checker": False,
         "pipeline_class": "PixArtAlphaPipeline",
     },
-    "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS": {
+    "PixArt-alpha/PixArt-Sigma-XL-2-512-MS": {
         "name": "PixArt-Sigma XL 2",
         "short_name": "PixArt-Sigma",
         "requires_safety_checker": False,

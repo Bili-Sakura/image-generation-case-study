@@ -9,8 +9,8 @@ Text-to-Image:
 - [stabilityai/stable-diffusion-2-1](https://huggingface.co/stabilityai/stable-diffusion-2-1)
 - [stabilityai/stable-diffusion-xl-base-1.0](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0)
 - [zai-org/CogView3-Plus-3B](https://huggingface.co/zai-org/CogView3-Plus-3B)
-- [PixArt-alpha/PixArt-XL-2-1024-MS](https://huggingface.co/PixArt-alpha/PixArt-XL-2-1024-MS)
-- [PixArt-alpha/PixArt-Sigma-XL-2-1024-MS](https://huggingface.co/PixArt-alpha/PixArt-Sigma-XL-2-1024-MS)
+- [PixArt-alpha/PixArt-XL-2-512x512](https://huggingface.co/PixArt-alpha/PixArt-XL-2-512x512)
+- [PixArt-alpha/PixArt-Sigma-XL-2-512-MS](https://huggingface.co/PixArt-alpha/PixArt-Sigma-XL-2-512-MS)
 - [Alpha-VLLM/Lumina-Next-SFT-diffusers](https://huggingface.co/Alpha-VLLM/Lumina-Next-SFT-diffusers)
 - [Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers](https://huggingface.co/Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers)
 - [stabilityai/stable-diffusion-3-medium-diffusers](https://huggingface.co/stabilityai/stable-diffusion-3-medium-diffusers)
@@ -145,8 +145,8 @@ image-generation-case-study/
 | Stable Diffusion 2.1 | Base   | ~4 GB  | 768x768    | Classic, reliable     |
 | Stable Diffusion XL  | XL     | ~7 GB  | 1024x1024  | Higher quality        |
 | CogView3 Plus 3B     | 3B     | ~6 GB  | 1024x1024  | Multilingual          |
-| PixArt-XL 2          | XL     | ~6 GB  | 1024x1024  | Fast generation       |
-| PixArt-Sigma XL 2    | XL     | ~6 GB  | 1024x1024  | Improved PixArt       |
+| PixArt-XL 2          | XL     | ~4 GB  | 512x512    | Fast generation       |
+| PixArt-Sigma XL 2    | XL     | ~4 GB  | 512x512    | Improved PixArt       |
 | Lumina-Next SFT      | Large  | ~8 GB  | 1024x1024  | Advanced architecture |
 | HunyuanDiT v1.2      | Large  | ~10 GB | 1024x1024  | Chinese + English     |
 | Stable Diffusion 3   | Medium | ~9 GB  | 1024x1024  | Latest SD3            |
