@@ -5,8 +5,44 @@ Utility functions for image processing and file handling.
 from datetime import datetime
 from pathlib import Path
 import torch
+import math
 from PIL import Image
+from typing import List, Optional
 from src.config import MODELS
+
+try:
+    from diffusers.utils import make_image_grid
+except ImportError:
+    # Fallback implementation if diffusers.utils.make_image_grid is not available
+    def make_image_grid(images: List[Image.Image], rows: int, cols: int) -> Image.Image:
+        """Create a grid of images.
+        
+        Args:
+            images: List of PIL images
+            rows: Number of rows in the grid
+            cols: Number of columns in the grid
+            
+        Returns:
+            PIL Image containing the grid
+        """
+        if not images:
+            raise ValueError("No images provided")
+        
+        # Get dimensions from first image
+        w, h = images[0].size
+        
+        # Create new image for grid
+        grid_w = cols * w
+        grid_h = rows * h
+        grid = Image.new('RGB', (grid_w, grid_h))
+        
+        # Paste images into grid
+        for idx, img in enumerate(images[:rows * cols]):
+            row = idx // cols
+            col = idx % cols
+            grid.paste(img, (col * w, row * h))
+        
+        return grid
 
 
 def setup_output_dir(base_dir: str = "outputs") -> Path:
@@ -125,3 +161,68 @@ def format_model_info(model_id: str, loaded: bool = False) -> str:
     status = "✓ Loaded" if loaded else "Not loaded"
 
     return f"{name} ({memory}) - {status}"
+
+
+def create_and_save_image_grid(
+    image_paths: List[str],
+    rows: Optional[int] = None,
+    cols: Optional[int] = None,
+    base_dir: str = "outputs"
+) -> Optional[str]:
+    """Create an image grid from a list of image paths.
+    
+    Args:
+        image_paths: List of paths to images
+        rows: Number of rows (auto-calculated if None)
+        cols: Number of columns (auto-calculated if None)
+        base_dir: Base directory for saving the grid
+        
+    Returns:
+        Path to the saved grid image, or None if failed
+    """
+    if not image_paths:
+        return None
+    
+    # Load images
+    images = []
+    for path in image_paths:
+        try:
+            img = Image.open(path)
+            images.append(img)
+        except Exception as e:
+            print(f"Failed to load image {path}: {e}")
+            continue
+    
+    if not images:
+        return None
+    
+    # Auto-calculate rows and cols if not provided
+    num_images = len(images)
+    if rows is None and cols is None:
+        # Default: try to make a square-ish grid
+        import math
+        cols = math.ceil(math.sqrt(num_images))
+        rows = math.ceil(num_images / cols)
+    elif rows is None:
+        rows = math.ceil(num_images / cols)
+    elif cols is None:
+        cols = math.ceil(num_images / rows)
+    
+    # Create grid
+    try:
+        grid_image = make_image_grid(images, rows=rows, cols=cols)
+        
+        # Save grid
+        output_dir = Path(base_dir) / "grids"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"image_grid_{rows}x{cols}_{timestamp}.png"
+        filepath = output_dir / filename
+        
+        grid_image.save(filepath)
+        return str(filepath)
+        
+    except Exception as e:
+        print(f"Failed to create image grid: {e}")
+        return None

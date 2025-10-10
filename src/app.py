@@ -9,7 +9,7 @@ import torch
 from src.config import MODELS, DEFAULT_MODELS, DEFAULT_CONFIG, IMAGE_SIZE_PRESETS
 from src.model_manager import get_model_manager, initialize_default_models
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage, get_gpu_info
+from src.utils import get_device, estimate_memory_usage, get_gpu_info, create_and_save_image_grid
 
 
 def create_model_checkboxes() -> List[Tuple[str, str, bool]]:
@@ -140,6 +140,40 @@ def load_selected_models_ui(selected_models: List[str], progress=gr.Progress()) 
     return "\n".join(status_lines)
 
 
+def create_image_grid_ui(
+    gallery_data: List[Tuple[str, str]],
+    rows: int,
+    cols: int
+) -> Tuple[str, str]:
+    """Create an image grid from gallery images.
+    
+    Args:
+        gallery_data: List of (image_path, caption) tuples from gallery
+        rows: Number of rows in the grid
+        cols: Number of columns in the grid
+        
+    Returns:
+        Tuple of (grid_image_path, status_message)
+    """
+    if not gallery_data:
+        return None, "❌ No images available. Please generate images first."
+    
+    # Extract image paths
+    image_paths = [path for path, _ in gallery_data]
+    
+    # Validate rows and cols
+    if rows <= 0 or cols <= 0:
+        return None, "❌ Rows and columns must be positive numbers."
+    
+    # Create grid
+    grid_path = create_and_save_image_grid(image_paths, rows=rows, cols=cols)
+    
+    if grid_path:
+        return grid_path, f"✓ Image grid created successfully: {grid_path}"
+    else:
+        return None, "❌ Failed to create image grid. Check console for errors."
+
+
 def create_ui() -> gr.Blocks:
     """Create the Gradio UI.
 
@@ -253,6 +287,41 @@ def create_ui() -> gr.Blocks:
                     object_fit="contain",
                 )
 
+                # Image Grid Section
+                gr.Markdown("### 🔲 Create Image Grid")
+                with gr.Row():
+                    grid_rows = gr.Number(
+                        label="Grid Rows",
+                        value=1,
+                        precision=0,
+                        minimum=1,
+                        info="Number of rows in the grid"
+                    )
+                    grid_cols = gr.Number(
+                        label="Grid Columns",
+                        value=2,
+                        precision=0,
+                        minimum=1,
+                        info="Number of columns in the grid"
+                    )
+                
+                create_grid_btn = gr.Button(
+                    "🎨 Create Image Grid", variant="secondary", size="sm"
+                )
+                
+                grid_output = gr.Image(
+                    label="Image Grid",
+                    type="filepath",
+                    visible=True
+                )
+                
+                grid_status = gr.Textbox(
+                    label="Grid Status",
+                    interactive=False,
+                    visible=True,
+                    lines=1
+                )
+
                 gr.Markdown(
                     """
                     ---
@@ -261,6 +330,7 @@ def create_ui() -> gr.Blocks:
                     - Each image is saved with its seed and timestamp
                     - Use the same seed across models for fair comparison
                     - Default models are pre-loaded for faster generation
+                    - Image grids are saved to `outputs/grids/` directory
                     """
                 )
 
@@ -286,6 +356,12 @@ def create_ui() -> gr.Blocks:
         ).then(
             lambda: gr.update(visible=True),
             outputs=load_status,
+        )
+
+        create_grid_btn.click(
+            fn=create_image_grid_ui,
+            inputs=[output_gallery, grid_rows, grid_cols],
+            outputs=[grid_output, grid_status],
         )
 
     return app
