@@ -4,7 +4,7 @@ This repo hold codes for case study of existing open-sourced diffusion models' c
 
 ## Model List
 
-Text-to-Image:
+### Open-Source Text-to-Image Models:
 
 - [stabilityai/stable-diffusion-2-1](https://huggingface.co/stabilityai/stable-diffusion-2-1)
 - [stabilityai/stable-diffusion-xl-base-1.0](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0)
@@ -21,6 +21,13 @@ Text-to-Image:
 - [stabilityai/stable-cascade](https://huggingface.co/stabilityai/stable-cascade)
 - [zai-org/CogView4-6B](https://huggingface.co/zai-org/CogView4-6B)
 
+### Closed-Source API Services:
+
+- **OpenAI DALL-E**: DALL-E 2 & DALL-E 3 (with quality and style controls)
+- **Google Imagen**: Vertex AI Imagen (high-quality photorealistic generation)
+- **Bytedance Cloud**: Volcano Engine text-to-image API
+- **Kling AI**: Kling image generation models
+
 ## Quick Start
 
 ### Installation
@@ -35,7 +42,31 @@ cd image-generation-case-study
 2. Install dependencies:
 
 ```bash
+# Install base dependencies for open-source models
 pip install -r requirements.txt
+
+# Optional: Install API dependencies for closed-source models
+pip install -r requirements_api.txt
+```
+
+3. (Optional) Configure API keys for closed-source models:
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your API keys
+nano .env  # or use your preferred editor
+```
+
+Then set the environment variables:
+
+```bash
+export OPENAI_API_KEY="your_openai_api_key"
+export GOOGLE_API_KEY="your_google_api_key"
+export GOOGLE_PROJECT_ID="your_google_project_id"
+export BYTEDANCE_API_KEY="your_bytedance_api_key"
+export KLING_API_KEY="your_kling_api_key"
 ```
 
 ### Usage
@@ -63,6 +94,9 @@ This will:
 **Features:**
 
 - 🎨 Multi-model comparison: Generate with multiple models simultaneously
+- 🔓 Open-Source Models: 14 local diffusion models
+- 🔒 Closed-Source APIs: OpenAI, Google, Bytedance, Kling
+- 🔄 API Comparison: Batch generation across multiple API providers
 - ⚙️ Configurable parameters: Steps, guidance, size, seed
 - 🖼️ Gallery view: See all results with model labels
 - 💾 Auto-save: Images saved to `outputs/{model_name}/`
@@ -115,6 +149,32 @@ image, filepath, seed = generate_image(
 )
 ```
 
+#### Option 3: Closed-Source API Usage
+
+Use the API clients programmatically:
+
+```python
+from src.api_clients import get_api_client
+
+# OpenAI DALL-E
+client = get_api_client("openai")
+image, error = client.generate(
+    prompt="A serene Japanese garden with a red bridge",
+    width=1024,
+    height=1024,
+    model="dall-e-3",
+    quality="hd",
+    style="vivid"
+)
+
+if image:
+    image.save("output.png")
+else:
+    print(f"Error: {error}")
+```
+
+See `example_api_generate.py` for more examples including batch comparisons across multiple APIs.
+
 ## Project Structure
 
 ```
@@ -125,6 +185,8 @@ image-generation-case-study/
 │   ├── config.py                 # Model configurations
 │   ├── model_manager.py          # Model loading & caching
 │   ├── inference.py              # Generation logic
+│   ├── api_clients.py            # Closed-source API clients
+│   ├── closed_source_widget.py   # Gradio widget for APIs
 │   ├── utils.py                  # Utility functions
 │   └── README.md                 # Detailed documentation
 ├── outputs/                      # Generated images (organized by model)
@@ -132,7 +194,9 @@ image-generation-case-study/
 │   ├── diffusers/
 │   ├── transformers/
 │   └── ...
-├── requirements.txt              # Python dependencies
+├── requirements.txt              # Python dependencies (base)
+├── requirements_api.txt          # API dependencies (optional)
+├── .env.example                  # Environment variable template
 ├── run.py                        # Launcher script
 └── README.md                     # This file
 ```
@@ -164,6 +228,23 @@ image-generation-case-study/
 - Stable Diffusion XL
 - Stable Cascade
 - Stable Diffusion 3
+
+### Closed-Source API Models
+
+| Provider         | Models Available     | Max Resolution | Special Features              |
+| ---------------- | -------------------- | -------------- | ----------------------------- |
+| OpenAI DALL-E    | DALL-E 2, DALL-E 3   | 1792x1792      | Quality & style controls      |
+| Google Imagen    | Imagen v5            | 1536x1536      | Photorealistic generation     |
+| Bytedance Cloud  | Text2Img v1          | 2048x2048      | Fast API response             |
+| Kling AI         | Kling v1, v1 Pro     | 2048x2048      | High-quality generation       |
+
+**API Features:**
+
+- 🔑 Secure API key management via environment variables
+- 🎛️ Provider-specific controls (quality, style for DALL-E)
+- 🔄 Batch comparison across multiple APIs
+- 💰 Pay-per-use model (requires API credits)
+- ⚡ No GPU required (cloud-based generation)
 
 ### Generation Parameters
 

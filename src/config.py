@@ -125,3 +125,48 @@ OUTPUT_DIR = "outputs"
 
 # Local model folder path
 LOCAL_MODEL_DIR = "/data/liuzicheng/zhenyuan/models"
+
+# Closed-source API model configurations
+CLOSED_SOURCE_MODELS = {
+    "openai": {
+        "name": "OpenAI DALL-E",
+        "short_name": "DALL-E 3",
+        "models": ["dall-e-2", "dall-e-3"],
+        "default_model": "dall-e-3",
+        "supports_quality": True,
+        "supports_style": True,
+        "max_size": 1792,
+        "api_key_env": "OPENAI_API_KEY",
+    },
+    "google": {
+        "name": "Google Imagen",
+        "short_name": "Imagen",
+        "models": ["imagegeneration@005"],
+        "default_model": "imagegeneration@005",
+        "supports_quality": False,
+        "supports_style": False,
+        "max_size": 1536,
+        "api_key_env": "GOOGLE_API_KEY",
+        "additional_env": ["GOOGLE_PROJECT_ID"],
+    },
+    "bytedance": {
+        "name": "Bytedance Cloud",
+        "short_name": "Bytedance",
+        "models": ["text2img-v1"],
+        "default_model": "text2img-v1",
+        "supports_quality": False,
+        "supports_style": False,
+        "max_size": 2048,
+        "api_key_env": "BYTEDANCE_API_KEY",
+    },
+    "kling": {
+        "name": "Kling AI",
+        "short_name": "Kling",
+        "models": ["kling-v1", "kling-v1-pro"],
+        "default_model": "kling-v1",
+        "supports_quality": False,
+        "supports_style": False,
+        "max_size": 2048,
+        "api_key_env": "KLING_API_KEY",
+    },
+}
