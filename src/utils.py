@@ -79,6 +79,22 @@ def get_device() -> str:
         return "cpu"
 
 
+def get_gpu_info() -> str:
+    """Get information about available GPUs."""
+    if not torch.cuda.is_available():
+        return "No CUDA GPUs available"
+    
+    gpu_count = torch.cuda.device_count()
+    info = [f"Found {gpu_count} GPU(s):"]
+    
+    for i in range(gpu_count):
+        name = torch.cuda.get_device_name(i)
+        memory_gb = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+        info.append(f"  GPU {i}: {name} ({memory_gb:.1f} GB)")
+    
+    return "\n".join(info)
+
+
 def estimate_memory_usage(model_id: str) -> str:
     """Estimate VRAM usage for a model (rough estimates)."""
     # These are rough estimates in GB

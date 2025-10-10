@@ -9,7 +9,7 @@ import torch
 from src.config import MODELS, DEFAULT_MODELS, DEFAULT_CONFIG, IMAGE_SIZE_PRESETS
 from src.model_manager import get_model_manager, initialize_default_models
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage
+from src.utils import get_device, estimate_memory_usage, get_gpu_info
 
 
 def create_model_checkboxes() -> List[Tuple[str, str, bool]]:
@@ -63,8 +63,13 @@ def generate_images_ui(
     width, height = IMAGE_SIZE_PRESETS.get(image_size, (1024, 1024))
 
     # Progress callback
-    def update_progress(msg: str):
-        progress(msg)
+    def update_progress(msg: str, current: int = 0, total: int = 1):
+        """Update progress with message."""
+        if current > 0 and total > 0:
+            progress((current, total), desc=msg)
+        else:
+            # For messages without specific progress, just show the message
+            progress(0, desc=msg)
 
     # Generate images
     results = generate_images_sequential(
@@ -143,7 +148,7 @@ def create_ui() -> gr.Blocks:
     """
     # Device info
     device = get_device()
-    device_name = torch.cuda.get_device_name(0) if device == "cuda" else "CPU"
+    gpu_info = get_gpu_info()
 
     with gr.Blocks(title="Text-to-Image Generation", theme=gr.themes.Soft()) as app:
         gr.Markdown(
@@ -155,7 +160,7 @@ def create_ui() -> gr.Blocks:
             """
         )
 
-        gr.Markdown(f"**Device:** {device_name} ({device})")
+        gr.Markdown(f"**Device:** {device}\n\n{gpu_info}")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -291,6 +296,9 @@ def main():
     print("=" * 60)
     print("Text-to-Image Generation Case Study")
     print("=" * 60)
+    
+    # Display GPU information
+    print(f"\n{get_gpu_info()}")
 
     # Initialize default models
     print("\nInitializing default models...")

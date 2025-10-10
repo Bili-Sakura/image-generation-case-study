@@ -67,6 +67,7 @@ This will:
 - 🖼️ Gallery view: See all results with model labels
 - 💾 Auto-save: Images saved to `outputs/{model_name}/`
 - 📊 Memory efficient: Sequential generation
+- 🚀 Multi-GPU support: Automatic device mapping for utilizing multiple GPUs
 
 **Developer Mode:**
 
@@ -171,6 +172,24 @@ image-generation-case-study/
 - **Image Sizes**: 512px to 1280px (multiple presets)
 - **Seed Control**: Fixed or random (-1)
 - **Negative Prompts**: Supported on compatible models
+
+### Multi-GPU Support
+
+The application automatically detects and utilizes multiple GPUs when available:
+
+- **Automatic Device Mapping**: When 2+ GPUs are detected, models are automatically distributed across GPUs using `device_map="auto"`
+- **Transparent Operation**: No configuration needed - just run the application
+- **GPU Information**: The UI displays all available GPUs and their memory
+- **Single GPU Fallback**: Automatically falls back to single GPU mode if only one GPU is available
+
+The system will print GPU information on startup:
+
+```
+Found 2 GPU(s):
+  GPU 0: NVIDIA A100-SXM4-40GB (40.0 GB)
+  GPU 1: NVIDIA A100-SXM4-40GB (40.0 GB)
+Multi-GPU mode enabled: 2 GPUs detected
+```
 
 ### Output Organization
 

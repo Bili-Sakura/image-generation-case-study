@@ -15,16 +15,23 @@ from src.utils import get_device
 class ModelManager:
     """Manages loading and caching of diffusion models."""
 
-    def __init__(self, device: Optional[str] = None):
+    def __init__(self, device: Optional[str] = None, use_device_map: bool = True):
         """Initialize model manager.
 
         Args:
             device: Device to load models on (cuda/cpu). Auto-detect if None.
+            use_device_map: If True, use device_map="auto" for multi-GPU support.
         """
         self.device = device or get_device()
+        self.use_device_map = use_device_map and torch.cuda.device_count() > 1
         self.loaded_models: Dict[str, DiffusionPipeline] = {}
         self.model_configs = MODELS
         self.local_model_dir = LOCAL_MODEL_DIR
+        
+        if self.use_device_map:
+            print(f"Multi-GPU mode enabled: {torch.cuda.device_count()} GPUs detected")
+        else:
+            print(f"Single device mode: {self.device}")
 
     def _get_local_model_path(self, model_id: str) -> str:
         """Get the local model path if it exists, otherwise return the original model_id.
@@ -77,15 +84,26 @@ class ModelManager:
             # Check if local model exists
             local_model_path = self._get_local_model_path(model_id)
 
+            # Prepare loading arguments
+            load_kwargs = {
+                "torch_dtype": torch.float16 if self.device == "cuda" else torch.float32,
+                "use_safetensors": True,
+            }
+            
+            # Use device_map="auto" for multi-GPU, otherwise specify device
+            if self.use_device_map:
+                load_kwargs["device_map"] = "auto"
+                print(f"Loading {model_id} with device_map='auto' for multi-GPU support")
+            
             # Load the pipeline from local path if available, otherwise from HuggingFace
             pipe = DiffusionPipeline.from_pretrained(
                 local_model_path,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-                use_safetensors=True,
+                **load_kwargs
             )
 
-            # Move to device
-            pipe = pipe.to(self.device)
+            # Move to specific device only if not using device_map
+            if not self.use_device_map:
+                pipe = pipe.to(self.device)
 
             # Disable safety checker if not required (for faster inference)
             model_config = self.model_configs[model_id]

@@ -82,13 +82,16 @@ def generate_image(
             )
 
         # Prepare generation parameters
+        # For multi-GPU with device_map, use CPU generator; otherwise use device-specific generator
+        generator_device = "cpu" if manager.use_device_map else manager.device
+        
         gen_kwargs = {
             "prompt": prompt,
             "num_inference_steps": num_inference_steps,
             "guidance_scale": guidance_scale,
             "width": width,
             "height": height,
-            "generator": torch.Generator(device=manager.device).manual_seed(seed_used),
+            "generator": torch.Generator(device=generator_device).manual_seed(seed_used),
         }
 
         # Add negative prompt if supported and provided
@@ -154,7 +157,9 @@ def generate_images_sequential(
 
     for i, model_id in enumerate(model_ids):
         if progress_callback:
-            progress_callback(f"Processing model {i+1}/{len(model_ids)}: {model_id}")
+            # Get model short name for display
+            model_name = MODELS.get(model_id, {}).get('short_name', model_id)
+            progress_callback(f"Processing: {model_name}", i + 1, len(model_ids))
 
         image, filepath, seed_used = generate_image(
             model_id=model_id,
@@ -166,7 +171,7 @@ def generate_images_sequential(
             height=height,
             seed=base_seed,
             scheduler=scheduler,
-            progress_callback=progress_callback,
+            progress_callback=None,  # Don't pass nested callbacks to avoid conflicts
         )
 
         results.append((model_id, image, filepath, seed_used))
