@@ -9,23 +9,16 @@ import torch
 from src.config import MODELS, DEFAULT_MODELS, DEFAULT_CONFIG, IMAGE_SIZE_PRESETS
 from src.model_manager import get_model_manager, initialize_default_models
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage, get_gpu_info
-from src.closed_source_widget import create_closed_source_widget, create_batch_api_interface
 from src.utils import get_device, estimate_memory_usage, get_gpu_info, create_and_save_image_grid
+from src.closed_source_widget import create_closed_source_widget, create_batch_api_interface
 
 
 def create_model_checkboxes() -> List[Tuple[str, str, bool]]:
-    """Create checkbox options for model selection.
-
-    Returns:
-        List of (label, value, default) tuples
-    """
-    options = []
-    for model_id, info in MODELS.items():
-        label = f"{info['short_name']} - {estimate_memory_usage(model_id)}"
-        is_default = model_id in DEFAULT_MODELS
-        options.append((label, model_id, is_default))
-    return options
+    """Create checkbox options for model selection."""
+    return [
+        (f"{info['short_name']} - {estimate_memory_usage(model_id)}", model_id, model_id in DEFAULT_MODELS)
+        for model_id, info in MODELS.items()
+    ]
 
 
 def generate_images_ui(
@@ -105,22 +98,12 @@ def generate_images_ui(
 
 
 def load_selected_models_ui(selected_models: List[str], progress=gr.Progress()) -> str:
-    """Load selected models into memory.
-
-    Args:
-        selected_models: List of model IDs to load
-        progress: Gradio progress tracker
-
-    Returns:
-        Status message
-    """
+    """Load selected models into memory."""
     if not selected_models:
         return "No models selected."
 
     manager = get_model_manager()
-
-    loaded = []
-    failed = []
+    loaded, failed = [], []
 
     for i, model_id in enumerate(selected_models):
         progress((i, len(selected_models)), desc=f"Loading {model_id}...")
@@ -130,50 +113,26 @@ def load_selected_models_ui(selected_models: List[str], progress=gr.Progress()) 
         except Exception as e:
             failed.append((MODELS[model_id]["short_name"], str(e)))
 
-    # Build status message
     status_lines = []
     if loaded:
         status_lines.append(f"✓ Successfully loaded: {', '.join(loaded)}")
     if failed:
         status_lines.append("✗ Failed to load:")
-        for name, error in failed:
-            status_lines.append(f"  - {name}: {error}")
-
+        status_lines.extend([f"  - {name}: {error}" for name, error in failed])
     return "\n".join(status_lines)
 
 
-def create_image_grid_ui(
-    gallery_data: List[Tuple[str, str]],
-    rows: int,
-    cols: int
-) -> Tuple[str, str]:
-    """Create an image grid from gallery images.
-    
-    Args:
-        gallery_data: List of (image_path, caption) tuples from gallery
-        rows: Number of rows in the grid
-        cols: Number of columns in the grid
-        
-    Returns:
-        Tuple of (grid_image_path, status_message)
-    """
+def create_image_grid_ui(gallery_data: List[Tuple[str, str]], rows: int, cols: int) -> Tuple[str, str]:
+    """Create an image grid from gallery images."""
     if not gallery_data:
         return None, "❌ No images available. Please generate images first."
-    
-    # Extract image paths
-    image_paths = [path for path, _ in gallery_data]
-    
-    # Validate rows and cols
     if rows <= 0 or cols <= 0:
         return None, "❌ Rows and columns must be positive numbers."
     
-    # Create grid
+    image_paths = [path for path, _ in gallery_data]
     grid_path = create_and_save_image_grid(image_paths, rows=rows, cols=cols)
     
-    if grid_path:
-        return grid_path, f"✓ Image grid created successfully: {grid_path}"
-    else:
-        return None, "❌ Failed to create image grid. Check console for errors."
+    return (grid_path, f"✓ Image grid created successfully: {grid_path}") if grid_path else (None, "❌ Failed to create image grid.")
 
 
 def create_ui() -> gr.Blocks:
@@ -326,6 +285,8 @@ def create_ui() -> gr.Blocks:
                 ).then(
                     lambda: gr.update(visible=True),
                     outputs=load_status,
+                )
+                
                 # Image Grid Section
                 gr.Markdown("### 🔲 Create Image Grid")
                 with gr.Row():

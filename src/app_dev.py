@@ -118,38 +118,17 @@ def generate_with_loaded_models(
     return gallery_items
 
 
-def create_image_grid_dev(
-    gallery_data: List,
-    rows: int,
-    cols: int
-):
-    """Create an image grid from gallery images.
-    
-    Args:
-        gallery_data: List of (image_path, caption) tuples from gallery
-        rows: Number of rows in the grid
-        cols: Number of columns in the grid
-        
-    Returns:
-        Tuple of (grid_image_path, status_message)
-    """
+def create_image_grid_dev(gallery_data: List, rows: int, cols: int):
+    """Create an image grid from gallery images."""
     if not gallery_data:
         return None, "❌ No images available. Please generate images first."
-    
-    # Extract image paths
-    image_paths = [path for path, _ in gallery_data]
-    
-    # Validate rows and cols
     if rows <= 0 or cols <= 0:
         return None, "❌ Rows and columns must be positive numbers."
     
-    # Create grid
+    image_paths = [path for path, _ in gallery_data]
     grid_path = create_and_save_image_grid(image_paths, rows=int(rows), cols=int(cols))
     
-    if grid_path:
-        return grid_path, f"✓ Image grid created successfully: {grid_path}"
-    else:
-        return None, "❌ Failed to create image grid. Check console for errors."
+    return (grid_path, f"✓ Image grid created successfully: {grid_path}") if grid_path else (None, "❌ Failed to create image grid.")
 
 
 def create_dev_ui() -> gr.Blocks:

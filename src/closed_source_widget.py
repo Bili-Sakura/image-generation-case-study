@@ -9,74 +9,14 @@ import traceback
 
 from src.api_clients import get_api_client
 from src.utils import save_image, set_seed
-
-
-# Closed-source model configurations
-CLOSED_SOURCE_MODELS = {
-    "openai": {
-        "name": "OpenAI DALL-E",
-        "short_name": "DALL-E 3",
-        "models": ["dall-e-2", "dall-e-3"],
-        "default_model": "dall-e-3",
-        "supports_quality": True,
-        "supports_style": True,
-        "max_size": 1792,
-    },
-    "google": {
-        "name": "Google Imagen",
-        "short_name": "Imagen",
-        "models": ["imagegeneration@005"],
-        "default_model": "imagegeneration@005",
-        "supports_quality": False,
-        "supports_style": False,
-        "max_size": 1536,
-    },
-    "bytedance": {
-        "name": "Bytedance Cloud",
-        "short_name": "Bytedance",
-        "models": ["text2img-v1"],
-        "default_model": "text2img-v1",
-        "supports_quality": False,
-        "supports_style": False,
-        "max_size": 2048,
-    },
-    "kling": {
-        "name": "Kling AI",
-        "short_name": "Kling",
-        "models": ["kling-v1", "kling-v1-pro"],
-        "default_model": "kling-v1",
-        "supports_quality": False,
-        "supports_style": False,
-        "max_size": 2048,
-    },
-}
+from src.config import CLOSED_SOURCE_MODELS
 
 
 def generate_with_api(
-    provider: str,
-    prompt: str,
-    width: int = 1024,
-    height: int = 1024,
-    model: Optional[str] = None,
-    quality: str = "standard",
-    style: str = "vivid",
-    seed: int = -1,
+    provider: str, prompt: str, width: int = 1024, height: int = 1024,
+    model: Optional[str] = None, quality: str = "standard", style: str = "vivid", seed: int = -1,
 ) -> Tuple[Optional[Image.Image], str, int]:
-    """Generate image using closed-source API.
-    
-    Args:
-        provider: API provider (openai, google, bytedance, kling)
-        prompt: Text prompt
-        width: Image width
-        height: Image height
-        model: Specific model version (optional)
-        quality: Image quality (for OpenAI)
-        style: Image style (for OpenAI)
-        seed: Random seed
-        
-    Returns:
-        Tuple of (image, filepath_or_error, seed_used)
-    """
+    """Generate image using closed-source API."""
     seed_used = set_seed(seed)
     
     try:
@@ -84,43 +24,25 @@ def generate_with_api(
         if not client:
             return None, f"Unknown provider: {provider}", seed_used
         
-        # Get model config
         config = CLOSED_SOURCE_MODELS.get(provider, {})
-        if model is None:
-            model = config.get("default_model")
+        model = model or config.get("default_model")
         
-        # Prepare generation kwargs
-        gen_kwargs = {
-            "prompt": prompt,
-            "width": width,
-            "height": height,
-        }
+        gen_kwargs = {"prompt": prompt, "width": width, "height": height}
         
         # Add provider-specific parameters
         if provider == "openai":
+            gen_kwargs.update({"model": model, "quality": quality, "style": style})
+        elif model:
             gen_kwargs["model"] = model
-            if config.get("supports_quality"):
-                gen_kwargs["quality"] = quality
-            if config.get("supports_style"):
-                gen_kwargs["style"] = style
-        elif provider in ["bytedance", "kling", "google"]:
-            if model:
-                gen_kwargs["model"] = model
         
-        # Generate image
         image, error = client.generate(**gen_kwargs)
         
         if error:
             return None, error, seed_used
-        
         if image:
-            # Save image
-            model_id = f"{provider}/{model or 'default'}"
-            filepath = save_image(image, model_id, seed_used, prompt)
+            filepath = save_image(image, f"{provider}/{model or 'default'}", seed_used, prompt)
             return image, filepath, seed_used
-        
         return None, "Failed to generate image", seed_used
-        
     except Exception as e:
         error_msg = f"Error generating with {provider}: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
