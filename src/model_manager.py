@@ -5,7 +5,10 @@ Model manager for loading and managing diffusion pipelines.
 import torch
 import os
 from typing import Dict, List, Optional
+import json
+import importlib
 from diffusers import DiffusionPipeline
+from diffusers.pipelines.lumina.pipeline_lumina import LuminaPipeline
 import gc
 
 from src.config import MODELS, DEFAULT_MODELS, LOCAL_MODEL_DIR
@@ -44,7 +47,34 @@ class ModelManager:
             return local_path
         return model_id
 
-    def load_model(self, model_id: str, force_reload: bool = False) -> DiffusionPipeline:
+    def _get_pipeline_class(self, model_path: str) -> type:
+        """Determine the pipeline class from the model's index file."""
+        model_index_path = os.path.join(model_path, "model_index.json")
+        if os.path.exists(model_index_path):
+            with open(model_index_path, "r") as f:
+                config = json.load(f)
+            class_name = config.get("_class_name")
+            if class_name == "LuminaText2ImgPipeline":
+                return LuminaPipeline
+        return DiffusionPipeline
+
+    def _load_custom_scheduler(self, pipe: DiffusionPipeline, model_path: str):
+        """Load a custom scheduler if defined in the model's directory."""
+        scheduler_config_path = os.path.join(model_path, "scheduler", "scheduler_config.json")
+        if os.path.exists(scheduler_config_path):
+            with open(scheduler_config_path, "r") as f:
+                scheduler_config = json.load(f)
+            scheduler_class_name = scheduler_config.get("_class_name")
+            if scheduler_class_name:
+                try:
+                    scheduler_module = importlib.import_module("diffusers.schedulers")
+                    scheduler_class = getattr(scheduler_module, scheduler_class_name)
+                    pipe.scheduler = scheduler_class.from_config(pipe.scheduler.config)
+                    print(f"Loaded custom scheduler: {scheduler_class_name}")
+                except (ImportError, AttributeError) as e:
+                    print(f"⚠️ Could not load custom scheduler {scheduler_class_name}: {e}")
+
+    def load_model(self, model_id: str, force_reload: bool = False, use_device_map_override: Optional[bool] = None) -> DiffusionPipeline:
         """Load a specific model pipeline."""
         if model_id in self.loaded_models and not force_reload:
             print(f"Using cached model: {model_id}")
@@ -54,20 +84,38 @@ class ModelManager:
             raise ValueError(f"Unknown model ID: {model_id}")
 
         print(f"Loading model: {model_id}")
+        
+        # Determine whether to use device_map
+        use_device_map_now = self.use_device_map if use_device_map_override is None else use_device_map_override
+        
         try:
             local_model_path = self._get_local_model_path(model_id)
+
+            pipeline_class = self._get_pipeline_class(local_model_path)
+            
             load_kwargs = {
                 "torch_dtype": torch.float16 if self.device == "cuda" else torch.float32,
                 "use_safetensors": True,
             }
+
+            if model_id == "thu-ml/unidiffuser-v1":
+                load_kwargs["use_safetensors"] = False
             
-            if self.use_device_map:
-                load_kwargs["device_map"] = "auto"
-                print(f"Loading {model_id} with device_map='auto' for multi-GPU support")
+            try:
+                pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
+            except (AttributeError, TypeError) as e:
+                # Some models don't work well with device_map, fallback to regular loading
+                if use_device_map_now and ("device_map" in str(e) or "_parameters" in str(e)):
+                    print(f"⚠️  device_map failed for {model_id}, retrying without device_map...")
+                    load_kwargs.pop("device_map", None)
+                    pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
+                    use_device_map_now = False
+                else:
+                    raise
             
-            pipe = DiffusionPipeline.from_pretrained(local_model_path, **load_kwargs)
-            
-            if not self.use_device_map:
+            self._load_custom_scheduler(pipe, local_model_path)
+
+            if not use_device_map_now:
                 pipe = pipe.to(self.device)
 
             # Disable safety checker if not required

@@ -18,13 +18,13 @@ MODELS = {
     },
     "zai-org/CogView3-Plus-3B": {
         "name": "CogView3 Plus 3B",
-        "short_name": "CogView3",
+        "short_name": "CogView3+",
         "requires_safety_checker": False,
         "pipeline_class": "CogView3PlusPipeline",
     },
     "PixArt-alpha/PixArt-XL-2-512x512": {
         "name": "PixArt-XL 2",
-        "short_name": "PixArt-XL",
+        "short_name": "PixArt-Alpha",
         "requires_safety_checker": False,
         "pipeline_class": "PixArtAlphaPipeline",
     },
@@ -48,25 +48,25 @@ MODELS = {
     },
     "stabilityai/stable-diffusion-3-medium-diffusers": {
         "name": "Stable Diffusion 3 Medium",
-        "short_name": "SD3",
+        "short_name": "SD 3",
         "requires_safety_checker": False,
         "pipeline_class": "StableDiffusion3Pipeline",
     },
     "black-forest-labs/FLUX.1-dev": {
         "name": "FLUX.1 Dev",
-        "short_name": "FLUX.1",
+        "short_name": "FLUX.1-dev",
         "requires_safety_checker": False,
         "pipeline_class": "FluxPipeline",
     },
     "Efficient-Large-Model/Sana_600M_512px_diffusers": {
         "name": "Sana 600M 512px",
-        "short_name": "Sana",
+        "short_name": "SANA",
         "requires_safety_checker": False,
         "pipeline_class": "SanaPipeline",
     },
     "Qwen/Qwen-Image": {
         "name": "Qwen Image",
-        "short_name": "Qwen",
+        "short_name": "Qwen-Image",
         "requires_safety_checker": False,
         "pipeline_class": "DiffusionPipeline",
     },
@@ -78,7 +78,7 @@ MODELS = {
     },
     "stabilityai/stable-cascade": {
         "name": "Stable Cascade",
-        "short_name": "Cascade",
+        "short_name": "Stable Cascade",
         "requires_safety_checker": False,
         "pipeline_class": "StableCascadeCombinedPipeline",
     },
@@ -93,8 +93,8 @@ MODELS = {
 # Default models to load on startup
 DEFAULT_MODELS = [
     "stabilityai/stable-diffusion-2-1-base",
-    "stabilityai/stable-diffusion-xl-base-1.0",
-    "stabilityai/stable-cascade",
+    # "stabilityai/stable-diffusion-xl-base-1.0",
+    # "stabilityai/stable-cascade",
     "stabilityai/stable-diffusion-3-medium-diffusers",
 ]
 
@@ -106,7 +106,7 @@ DEFAULT_CONFIG = {
     "height": 512,
     "seed": -1,  # -1 means random
     "negative_prompt": "",
-    "scheduler": "EulerDiscreteScheduler",  # Unified scheduler for all models
+    # "scheduler": "EulerDiscreteScheduler",  # Unified scheduler for all models
 }
 
 # Image size presets
@@ -169,4 +169,15 @@ CLOSED_SOURCE_MODELS = {
         "max_size": 2048,
         "api_key_env": "KLING_API_KEY",
     },
+    "seeddream": {
+        "name": "SeedDream 3.0",
+        "short_name": "SeedDream",
+        "models": ["high_aes_general_v30l_zt2i"],
+        "default_model": "high_aes_general_v30l_zt2i",
+        "supports_quality": False,
+        "supports_style": False,
+        "max_size": 2048,
+        "api_key_env": "SEEDDREAM_ACCESS_KEY_ID",
+        "additional_env": ["SEEDDREAM_SECRET_ACCESS_KEY"],
+    }
 }

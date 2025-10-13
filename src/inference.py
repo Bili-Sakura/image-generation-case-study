@@ -6,11 +6,16 @@ import torch
 from typing import Dict, List, Tuple, Optional, Callable
 from PIL import Image
 import traceback
+import os
 from diffusers import EulerDiscreteScheduler
+from diffusers.pipelines.stable_cascade.pipeline_stable_cascade import StableCascadeDecoderPipeline
+from diffusers.pipelines.stable_cascade.pipeline_stable_cascade_prior import StableCascadePriorPipeline
+import importlib
+
 
 from src.model_manager import get_model_manager
-from src.config import MODELS, DEFAULT_CONFIG
-from src.utils import set_seed, save_image
+from src.config import MODELS, DEFAULT_CONFIG, LOCAL_MODEL_DIR
+from src.utils import save_image, seed_everything
 
 
 def generate_image(
@@ -34,15 +39,19 @@ def generate_image(
     guidance_scale = guidance_scale or DEFAULT_CONFIG["guidance_scale"]
     width = width or DEFAULT_CONFIG["width"]
     height = height or DEFAULT_CONFIG["height"]
-    seed_used = set_seed(seed)
+    seed_used = seed_everything(seed)
 
     try:
         pipe = manager.get_pipeline(model_id) or manager.load_model(model_id)
         
         # Set scheduler if specified
-        scheduler_name = scheduler or DEFAULT_CONFIG.get("scheduler")
-        if scheduler_name == "EulerDiscreteScheduler" and hasattr(pipe, "scheduler"):
-            pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
+        if scheduler and hasattr(pipe, "scheduler"):
+            try:
+                scheduler_class = getattr(importlib.import_module("diffusers.schedulers"), scheduler)
+                pipe.scheduler = scheduler_class.from_config(pipe.scheduler.config)
+                print(f"Using custom scheduler: {scheduler}")
+            except (ImportError, AttributeError):
+                print(f"Warning: Could not find or load scheduler '{scheduler}'. Using model's default.")
 
         if progress_callback:
             progress_callback(f"Generating with {model_config.get('short_name', model_id)}...")
@@ -60,6 +69,26 @@ def generate_image(
 
         if negative_prompt and hasattr(pipe, "negative_prompt"):
             gen_kwargs["negative_prompt"] = negative_prompt
+
+        if isinstance(pipe, StableCascadeDecoderPipeline):
+            prior_model_path = os.path.join(LOCAL_MODEL_DIR, "stabilityai/stable-cascade-prior")
+            if not os.path.exists(prior_model_path):
+                prior_model_path = "stabilityai/stable-cascade-prior"
+
+            prior_pipeline = StableCascadePriorPipeline.from_pretrained(
+                prior_model_path, torch_dtype=pipe.dtype, device_map="balanced"
+            )
+            prompt_embeds = prior_pipeline(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                generator=torch.Generator(device="cpu").manual_seed(seed_used),
+                num_inference_steps=20,
+                guidance_scale=4.0,
+            ).image_embeddings
+            gen_kwargs["image_embeddings"] = prompt_embeds
+            gen_kwargs.pop("width", None)
+            gen_kwargs.pop("height", None)
+            gen_kwargs.pop("guidance_scale", None)
 
         image = pipe(**gen_kwargs).images[0]
         filepath = save_image(image, model_id, seed_used, prompt)
@@ -90,7 +119,7 @@ def generate_images_sequential(
     progress_callback: Optional[Callable] = None,
 ) -> List[Tuple[str, Optional[Image.Image], str, int]]:
     """Generate images sequentially with multiple models."""
-    base_seed = set_seed(-1) if seed == -1 else seed
+    base_seed = seed_everything(-1) if seed == -1 else seed
     results = []
 
     for i, model_id in enumerate(model_ids):

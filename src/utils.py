@@ -36,13 +36,20 @@ def save_image(image: Image.Image, model_id: str, seed: int, prompt: str, base_d
     return str(filepath)
 
 
-def set_seed(seed: int) -> int:
-    """Set random seed for reproducibility. Returns the seed used."""
+def seed_everything(seed: int) -> int:
+    """Set random seed for reproducibility across all libraries."""
     import random
+    import numpy as np
+    
     seed = random.randint(0, 2**32 - 1) if seed == -1 else seed
+    
+    random.seed(seed)
+    np.random.seed(seed)
     torch.manual_seed(seed)
+    
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+        
     return seed
 
 

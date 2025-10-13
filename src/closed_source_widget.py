@@ -1,23 +1,23 @@
 """
-Custom Gradio widget for closed-source image generation APIs.
+Custom Gradio widget for the SeedDream image generation API.
 """
 
 import gradio as gr
-from typing import List, Tuple, Optional
+from typing import Tuple, Optional
 from PIL import Image
 import traceback
 
 from src.api_clients import get_api_client
-from src.utils import save_image, set_seed
+from src.utils import save_image, seed_everything
 from src.config import CLOSED_SOURCE_MODELS
 
 
 def generate_with_api(
-    provider: str, prompt: str, width: int = 1024, height: int = 1024,
-    model: Optional[str] = None, quality: str = "standard", style: str = "vivid", seed: int = -1,
+    prompt: str, width: int = 1024, height: int = 1024, seed: int = -1,
 ) -> Tuple[Optional[Image.Image], str, int]:
-    """Generate image using closed-source API."""
-    seed_used = set_seed(seed)
+    """Generate image using the SeedDream API."""
+    seed_used = seed_everything(seed)
+    provider = "seeddream"
     
     try:
         client = get_api_client(provider)
@@ -25,15 +25,9 @@ def generate_with_api(
             return None, f"Unknown provider: {provider}", seed_used
         
         config = CLOSED_SOURCE_MODELS.get(provider, {})
-        model = model or config.get("default_model")
+        model = config.get("default_model")
         
-        gen_kwargs = {"prompt": prompt, "width": width, "height": height}
-        
-        # Add provider-specific parameters
-        if provider == "openai":
-            gen_kwargs.update({"model": model, "quality": quality, "style": style})
-        elif model:
-            gen_kwargs["model"] = model
+        gen_kwargs = {"prompt": prompt, "width": width, "height": height, "seed": seed_used}
         
         image, error = client.generate(**gen_kwargs)
         
@@ -50,113 +44,42 @@ def generate_with_api(
 
 
 def create_closed_source_widget() -> gr.Blocks:
-    """Create the closed-source image generation widget.
-    
-    Returns:
-        Gradio Blocks component containing the widget
-    """
+    """Create the SeedDream image generation widget."""
     with gr.Blocks() as widget:
         gr.Markdown(
             """
-            ## 🔒 Closed-Source Image Generation
-            Generate images using commercial APIs from OpenAI, Google, Bytedance, and Kling.
-            **Note:** Requires API keys to be set as environment variables.
+            ## 🌱 SeedDream Image Generation
+            Generate images using the SeedDream 3.0 API.
+            **Note:** Requires `SEEDDREAM_ACCESS_KEY_ID` and `SEEDDREAM_SECRET_ACCESS_KEY` to be set as environment variables.
             """
         )
         
         with gr.Row():
             with gr.Column(scale=1):
-                # Provider selection
-                provider_selector = gr.Radio(
-                    choices=[
-                        ("OpenAI DALL-E", "openai"),
-                        ("Google Imagen", "google"),
-                        ("Bytedance Cloud", "bytedance"),
-                        ("Kling AI", "kling"),
-                    ],
-                    value="openai",
-                    label="Select Provider",
-                    info="Choose which API to use",
-                )
-                
-                # Prompt input
                 api_prompt_input = gr.Textbox(
                     label="Prompt",
                     placeholder="Enter your text prompt here...",
                     lines=3,
                 )
                 
-                # Model selection (dynamic based on provider)
-                model_selector = gr.Dropdown(
-                    choices=CLOSED_SOURCE_MODELS["openai"]["models"],
-                    value=CLOSED_SOURCE_MODELS["openai"]["default_model"],
-                    label="Model Version",
-                    info="Select specific model version",
-                )
-                
-                # Advanced settings
                 with gr.Accordion("⚙️ Advanced Settings", open=False):
-                    # Image size
                     api_width = gr.Slider(
-                        minimum=256,
-                        maximum=2048,
-                        value=1024,
-                        step=64,
-                        label="Width",
+                        minimum=512, maximum=2048, value=1328, step=64, label="Width",
                     )
-                    
                     api_height = gr.Slider(
-                        minimum=256,
-                        maximum=2048,
-                        value=1024,
-                        step=64,
-                        label="Height",
+                        minimum=512, maximum=2048, value=1328, step=64, label="Height",
                     )
-                    
-                    # OpenAI-specific settings
-                    quality_selector = gr.Radio(
-                        choices=["standard", "hd"],
-                        value="standard",
-                        label="Quality (DALL-E only)",
-                        info="HD costs more",
-                        visible=True,
-                    )
-                    
-                    style_selector = gr.Radio(
-                        choices=["vivid", "natural"],
-                        value="vivid",
-                        label="Style (DALL-E only)",
-                        info="Vivid for hyper-real, natural for realistic",
-                        visible=True,
-                    )
-                    
                     api_seed = gr.Number(
-                        label="Seed",
-                        value=-1,
-                        precision=0,
-                        info="-1 for random (note: most APIs ignore seed)",
+                        label="Seed", value=-1, precision=0, info="-1 for random",
                     )
                 
-                # Generate button
-                api_generate_btn = gr.Button(
-                    "🚀 Generate with API", variant="primary", size="lg"
-                )
+                api_generate_btn = gr.Button("🚀 Generate", variant="primary", size="lg")
                 
-                # API status
-                api_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    lines=2,
-                )
+                api_status = gr.Textbox(label="Status", interactive=False, lines=2)
             
             with gr.Column(scale=1):
-                # Output
                 gr.Markdown("### Generated Image")
-                api_output = gr.Image(
-                    label="Result",
-                    type="pil",
-                    show_label=False,
-                )
+                api_output = gr.Image(label="Result", type="pil", show_label=False)
                 
                 gr.Markdown(
                     """
@@ -164,56 +87,24 @@ def create_closed_source_widget() -> gr.Blocks:
                     **API Key Setup:**
                     
                     Set the following environment variables:
-                    - `OPENAI_API_KEY` - For OpenAI DALL-E
-                    - `GOOGLE_API_KEY` - For Google Imagen
-                    - `GOOGLE_PROJECT_ID` - Google Cloud Project ID
-                    - `BYTEDANCE_API_KEY` - For Bytedance Cloud
-                    - `KLING_API_KEY` - For Kling AI
+                    - `SEEDDREAM_ACCESS_KEY_ID`
+                    - `SEEDDREAM_SECRET_ACCESS_KEY`
                     
-                    Images are saved to `outputs/{provider}/` directory.
+                    Images are saved to `outputs/seeddream/` directory.
                     """
                 )
-        
-        # Dynamic UI updates based on provider selection
-        def update_model_choices(provider):
-            """Update model dropdown based on selected provider."""
-            config = CLOSED_SOURCE_MODELS.get(provider, {})
-            models = config.get("models", [])
-            default = config.get("default_model", models[0] if models else None)
-            
-            # Show/hide provider-specific options
-            show_openai_opts = provider == "openai"
-            
-            return (
-                gr.update(choices=models, value=default),
-                gr.update(visible=show_openai_opts),
-                gr.update(visible=show_openai_opts),
-            )
-        
-        provider_selector.change(
-            fn=update_model_choices,
-            inputs=[provider_selector],
-            outputs=[model_selector, quality_selector, style_selector],
-        )
-        
-        # Generate image handler
-        def generate_handler(
-            provider, prompt, width, height, model, quality, style, seed, progress=gr.Progress()
-        ):
+
+        def generate_handler(prompt, width, height, seed, progress=gr.Progress()):
             """Handle image generation request."""
             if not prompt:
                 return None, "⚠️ Please enter a prompt!"
             
-            progress(0, desc=f"Generating with {CLOSED_SOURCE_MODELS[provider]['short_name']}...")
+            progress(0, desc="Generating with SeedDream...")
             
             image, result, seed_used = generate_with_api(
-                provider=provider,
                 prompt=prompt,
                 width=int(width),
                 height=int(height),
-                model=model,
-                quality=quality,
-                style=style,
                 seed=int(seed),
             )
             
@@ -226,112 +117,8 @@ def create_closed_source_widget() -> gr.Blocks:
         
         api_generate_btn.click(
             fn=generate_handler,
-            inputs=[
-                provider_selector,
-                api_prompt_input,
-                api_width,
-                api_height,
-                model_selector,
-                quality_selector,
-                style_selector,
-                api_seed,
-            ],
+            inputs=[api_prompt_input, api_width, api_height, api_seed],
             outputs=[api_output, api_status],
         )
     
     return widget
-
-
-def create_batch_api_interface() -> gr.Blocks:
-    """Create interface for batch generation with multiple APIs.
-    
-    Returns:
-        Gradio Blocks component for batch API generation
-    """
-    with gr.Blocks() as interface:
-        gr.Markdown(
-            """
-            ## 🔄 Batch API Generation
-            Generate images using multiple closed-source APIs simultaneously for comparison.
-            """
-        )
-        
-        with gr.Row():
-            with gr.Column(scale=1):
-                batch_prompt = gr.Textbox(
-                    label="Prompt",
-                    placeholder="Enter your text prompt...",
-                    lines=3,
-                )
-                
-                batch_providers = gr.CheckboxGroup(
-                    choices=[
-                        ("OpenAI DALL-E", "openai"),
-                        ("Google Imagen", "google"),
-                        ("Bytedance Cloud", "bytedance"),
-                        ("Kling AI", "kling"),
-                    ],
-                    value=["openai"],
-                    label="Select Providers",
-                    info="Generate with multiple APIs",
-                )
-                
-                with gr.Row():
-                    batch_width = gr.Number(label="Width", value=1024, precision=0)
-                    batch_height = gr.Number(label="Height", value=1024, precision=0)
-                
-                batch_generate_btn = gr.Button("🚀 Generate All", variant="primary")
-            
-            with gr.Column(scale=2):
-                batch_gallery = gr.Gallery(
-                    label="Results",
-                    show_label=True,
-                    columns=2,
-                    rows=2,
-                    height="auto",
-                )
-                
-                batch_status = gr.Textbox(
-                    label="Status",
-                    lines=5,
-                    interactive=False,
-                )
-        
-        def batch_generate_handler(prompt, providers, width, height, progress=gr.Progress()):
-            """Generate with multiple providers."""
-            if not prompt:
-                return [], "⚠️ Please enter a prompt!"
-            
-            if not providers:
-                return [], "⚠️ Please select at least one provider!"
-            
-            results = []
-            status_lines = []
-            
-            for i, provider in enumerate(providers):
-                progress((i, len(providers)), desc=f"Generating with {provider}...")
-                
-                image, result, seed = generate_with_api(
-                    provider=provider,
-                    prompt=prompt,
-                    width=int(width),
-                    height=int(height),
-                )
-                
-                provider_name = CLOSED_SOURCE_MODELS[provider]["short_name"]
-                
-                if image:
-                    results.append((result, f"{provider_name} (seed: {seed})"))
-                    status_lines.append(f"✅ {provider_name}: Success")
-                else:
-                    status_lines.append(f"❌ {provider_name}: {result}")
-            
-            return results, "\n".join(status_lines)
-        
-        batch_generate_btn.click(
-            fn=batch_generate_handler,
-            inputs=[batch_prompt, batch_providers, batch_width, batch_height],
-            outputs=[batch_gallery, batch_status],
-        )
-    
-    return interface
