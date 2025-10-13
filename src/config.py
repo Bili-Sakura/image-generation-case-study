@@ -4,10 +4,10 @@ Configuration file for model definitions and default parameters.
 
 # Model definitions with metadata
 MODELS = {
-    "stabilityai/stable-diffusion-2-1": {
+    "stabilityai/stable-diffusion-2-1-base": {
         "name": "Stable Diffusion 2.1",
         "short_name": "SD 2.1",
-        "requires_safety_checker": True,
+        "requires_safety_checker": False,
         "pipeline_class": "StableDiffusionPipeline",
     },
     "stabilityai/stable-diffusion-xl-base-1.0": {
@@ -22,13 +22,13 @@ MODELS = {
         "requires_safety_checker": False,
         "pipeline_class": "CogView3PlusPipeline",
     },
-    "PixArt-alpha/PixArt-XL-2-1024-MS": {
+    "PixArt-alpha/PixArt-XL-2-512x512": {
         "name": "PixArt-XL 2",
         "short_name": "PixArt-XL",
         "requires_safety_checker": False,
         "pipeline_class": "PixArtAlphaPipeline",
     },
-    "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS": {
+    "PixArt-alpha/PixArt-Sigma-XL-2-512-MS": {
         "name": "PixArt-Sigma XL 2",
         "short_name": "PixArt-Sigma",
         "requires_safety_checker": False,
@@ -92,7 +92,7 @@ MODELS = {
 
 # Default models to load on startup
 DEFAULT_MODELS = [
-    "stabilityai/stable-diffusion-2-1",
+    "stabilityai/stable-diffusion-2-1-base",
     "stabilityai/stable-diffusion-xl-base-1.0",
     "stabilityai/stable-cascade",
     "stabilityai/stable-diffusion-3-medium-diffusers",
@@ -101,7 +101,7 @@ DEFAULT_MODELS = [
 # Default generation parameters
 DEFAULT_CONFIG = {
     "num_inference_steps": 50,
-    "guidance_scale": 1.0,  # 1.0 = no CFG amplification (2x faster)
+    "guidance_scale": 7.5,  # Classifier-free guidance scale for prompt adherence
     "width": 512,
     "height": 512,
     "seed": -1,  # -1 means random
@@ -122,3 +122,51 @@ IMAGE_SIZE_PRESETS = {
 
 # Output directory
 OUTPUT_DIR = "outputs"
+
+# Local model folder path
+LOCAL_MODEL_DIR = "/data/liuzicheng/zhenyuan/models"
+
+# Closed-source API model configurations
+CLOSED_SOURCE_MODELS = {
+    "openai": {
+        "name": "OpenAI DALL-E",
+        "short_name": "DALL-E 3",
+        "models": ["dall-e-2", "dall-e-3"],
+        "default_model": "dall-e-3",
+        "supports_quality": True,
+        "supports_style": True,
+        "max_size": 1792,
+        "api_key_env": "OPENAI_API_KEY",
+    },
+    "google": {
+        "name": "Google Imagen",
+        "short_name": "Imagen",
+        "models": ["imagegeneration@005"],
+        "default_model": "imagegeneration@005",
+        "supports_quality": False,
+        "supports_style": False,
+        "max_size": 1536,
+        "api_key_env": "GOOGLE_API_KEY",
+        "additional_env": ["GOOGLE_PROJECT_ID"],
+    },
+    "bytedance": {
+        "name": "Bytedance Cloud",
+        "short_name": "Bytedance",
+        "models": ["text2img-v1"],
+        "default_model": "text2img-v1",
+        "supports_quality": False,
+        "supports_style": False,
+        "max_size": 2048,
+        "api_key_env": "BYTEDANCE_API_KEY",
+    },
+    "kling": {
+        "name": "Kling AI",
+        "short_name": "Kling",
+        "models": ["kling-v1", "kling-v1-pro"],
+        "default_model": "kling-v1",
+        "supports_quality": False,
+        "supports_style": False,
+        "max_size": 2048,
+        "api_key_env": "KLING_API_KEY",
+    },
+}

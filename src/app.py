@@ -9,21 +9,16 @@ import torch
 from src.config import MODELS, DEFAULT_MODELS, DEFAULT_CONFIG, IMAGE_SIZE_PRESETS
 from src.model_manager import get_model_manager, initialize_default_models
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage
+from src.utils import get_device, estimate_memory_usage, get_gpu_info, create_and_save_image_grid
+from src.closed_source_widget import create_closed_source_widget, create_batch_api_interface
 
 
 def create_model_checkboxes() -> List[Tuple[str, str, bool]]:
-    """Create checkbox options for model selection.
-
-    Returns:
-        List of (label, value, default) tuples
-    """
-    options = []
-    for model_id, info in MODELS.items():
-        label = f"{info['short_name']} - {estimate_memory_usage(model_id)}"
-        is_default = model_id in DEFAULT_MODELS
-        options.append((label, model_id, is_default))
-    return options
+    """Create checkbox options for model selection."""
+    return [
+        (f"{info['short_name']} - {estimate_memory_usage(model_id)}", model_id, model_id in DEFAULT_MODELS)
+        for model_id, info in MODELS.items()
+    ]
 
 
 def generate_images_ui(
@@ -63,8 +58,13 @@ def generate_images_ui(
     width, height = IMAGE_SIZE_PRESETS.get(image_size, (1024, 1024))
 
     # Progress callback
-    def update_progress(msg: str):
-        progress(msg)
+    def update_progress(msg: str, current: int = 0, total: int = 1):
+        """Update progress with message."""
+        if current > 0 and total > 0:
+            progress((current, total), desc=msg)
+        else:
+            # For messages without specific progress, just show the message
+            progress(0, desc=msg)
 
     # Generate images
     results = generate_images_sequential(
@@ -98,22 +98,12 @@ def generate_images_ui(
 
 
 def load_selected_models_ui(selected_models: List[str], progress=gr.Progress()) -> str:
-    """Load selected models into memory.
-
-    Args:
-        selected_models: List of model IDs to load
-        progress: Gradio progress tracker
-
-    Returns:
-        Status message
-    """
+    """Load selected models into memory."""
     if not selected_models:
         return "No models selected."
 
     manager = get_model_manager()
-
-    loaded = []
-    failed = []
+    loaded, failed = [], []
 
     for i, model_id in enumerate(selected_models):
         progress((i, len(selected_models)), desc=f"Loading {model_id}...")
@@ -123,16 +113,26 @@ def load_selected_models_ui(selected_models: List[str], progress=gr.Progress()) 
         except Exception as e:
             failed.append((MODELS[model_id]["short_name"], str(e)))
 
-    # Build status message
     status_lines = []
     if loaded:
         status_lines.append(f"✓ Successfully loaded: {', '.join(loaded)}")
     if failed:
         status_lines.append("✗ Failed to load:")
-        for name, error in failed:
-            status_lines.append(f"  - {name}: {error}")
-
+        status_lines.extend([f"  - {name}: {error}" for name, error in failed])
     return "\n".join(status_lines)
+
+
+def create_image_grid_ui(gallery_data: List[Tuple[str, str]], rows: int, cols: int) -> Tuple[str, str]:
+    """Create an image grid from gallery images."""
+    if not gallery_data:
+        return None, "❌ No images available. Please generate images first."
+    if rows <= 0 or cols <= 0:
+        return None, "❌ Rows and columns must be positive numbers."
+    
+    image_paths = [path for path, _ in gallery_data]
+    grid_path = create_and_save_image_grid(image_paths, rows=rows, cols=cols)
+    
+    return (grid_path, f"✓ Image grid created successfully: {grid_path}") if grid_path else (None, "❌ Failed to create image grid.")
 
 
 def create_ui() -> gr.Blocks:
@@ -143,109 +143,183 @@ def create_ui() -> gr.Blocks:
     """
     # Device info
     device = get_device()
-    device_name = torch.cuda.get_device_name(0) if device == "cuda" else "CPU"
+    gpu_info = get_gpu_info()
 
     with gr.Blocks(title="Text-to-Image Generation", theme=gr.themes.Soft()) as app:
         gr.Markdown(
             """
             # 🎨 Text-to-Image Generation Case Study
             
-            Generate images using multiple state-of-the-art diffusion models.
-            Select your models, enter a prompt, and compare the results!
+            Generate images using multiple state-of-the-art diffusion models (open-source) 
+            or commercial APIs (closed-source).
             """
         )
 
-        gr.Markdown(f"**Device:** {device_name} ({device})")
-
-        with gr.Row():
-            with gr.Column(scale=1):
-                # Input section
-                gr.Markdown("### 📝 Prompt")
-                prompt_input = gr.Textbox(
-                    label="Prompt",
-                    placeholder="Enter your text prompt here...",
-                    lines=3,
-                )
-
-                negative_prompt_input = gr.Textbox(
-                    label="Negative Prompt (Optional)",
-                    placeholder="Enter negative prompt to avoid certain features...",
-                    lines=2,
-                )
-
-                # Model selection
-                gr.Markdown("### 🤖 Model Selection")
-                model_checkboxes = create_model_checkboxes()
-
-                model_selector = gr.CheckboxGroup(
-                    choices=[(label, value) for label, value, _ in model_checkboxes],
-                    value=[
-                        value for _, value, is_default in model_checkboxes if is_default
-                    ],
-                    label="Select Models",
-                    info="Choose which models to use for generation",
-                )
-
+        gr.Markdown(f"**Device:** {device}\n\n{gpu_info}")
+        
+        # Create tabs for open-source and closed-source models
+        with gr.Tabs():
+            # Tab 1: Open-Source Models
+            with gr.Tab("🔓 Open-Source Models"):
                 with gr.Row():
-                    load_models_btn = gr.Button("🔄 Load Selected Models", size="sm")
+                    with gr.Column(scale=1):
+                        # Input section
+                        gr.Markdown("### 📝 Prompt")
+                        prompt_input = gr.Textbox(
+                            label="Prompt",
+                            placeholder="Enter your text prompt here...",
+                            lines=3,
+                        )
 
-                load_status = gr.Textbox(
-                    label="Load Status",
-                    interactive=False,
-                    lines=3,
-                    visible=False,
+                        negative_prompt_input = gr.Textbox(
+                            label="Negative Prompt (Optional)",
+                            placeholder="Enter negative prompt to avoid certain features...",
+                            lines=2,
+                        )
+
+                        # Model selection
+                        gr.Markdown("### 🤖 Model Selection")
+                        model_checkboxes = create_model_checkboxes()
+
+                        model_selector = gr.CheckboxGroup(
+                            choices=[(label, value) for label, value, _ in model_checkboxes],
+                            value=[
+                                value for _, value, is_default in model_checkboxes if is_default
+                            ],
+                            label="Select Models",
+                            info="Choose which models to use for generation",
+                        )
+
+                        with gr.Row():
+                            load_models_btn = gr.Button("🔄 Load Selected Models", size="sm")
+
+                        load_status = gr.Textbox(
+                            label="Load Status",
+                            interactive=False,
+                            lines=3,
+                            visible=False,
+                        )
+
+                        # Generation settings (collapsible)
+                        with gr.Accordion("⚙️ Generation Settings", open=False):
+                            num_steps = gr.Slider(
+                                minimum=10,
+                                maximum=100,
+                                value=DEFAULT_CONFIG["num_inference_steps"],
+                                step=1,
+                                label="Number of Inference Steps",
+                                info="More steps = higher quality but slower",
+                            )
+
+                            guidance_scale = gr.Slider(
+                                minimum=1.0,
+                                maximum=20.0,
+                                value=DEFAULT_CONFIG["guidance_scale"],
+                                step=0.5,
+                                label="Guidance Scale",
+                                info="1.0 = faster (no CFG), higher = stronger prompt adherence",
+                            )
+
+                            image_size = gr.Dropdown(
+                                choices=list(IMAGE_SIZE_PRESETS.keys()),
+                                value="512x512",
+                                label="Image Size",
+                            )
+
+                            seed_input = gr.Number(
+                                label="Seed",
+                                value=DEFAULT_CONFIG["seed"],
+                                precision=0,
+                                info="-1 for random seed",
+                            )
+
+                        # Generate button
+                        generate_btn = gr.Button(
+                            "🚀 Generate Images", variant="primary", size="lg"
+                        )
+
+                    with gr.Column(scale=2):
+                        # Output section
+                        gr.Markdown("### 🖼️ Generated Images")
+
+                        output_gallery = gr.Gallery(
+                            label="Results",
+                            show_label=False,
+                            elem_id="gallery",
+                            columns=2,
+                            rows=2,
+                            height="auto",
+                            object_fit="contain",
+                        )
+
+                        gr.Markdown(
+                            """
+                            ---
+                            💡 **Tips:**
+                            - Images are automatically saved to `outputs/{model_name}/` directory
+                            - Each image is saved with its seed and timestamp
+                            - Use the same seed across models for fair comparison
+                            - Default models are pre-loaded for faster generation
+                            """
+                        )
+
+                # Event handlers for open-source tab
+                generate_btn.click(
+                    fn=generate_images_ui,
+                    inputs=[
+                        prompt_input,
+                        negative_prompt_input,
+                        model_selector,
+                        num_steps,
+                        guidance_scale,
+                        image_size,
+                        seed_input,
+                    ],
+                    outputs=output_gallery,
                 )
 
-                # Generation settings (collapsible)
-                with gr.Accordion("⚙️ Generation Settings", open=False):
-                    num_steps = gr.Slider(
-                        minimum=10,
-                        maximum=100,
-                        value=DEFAULT_CONFIG["num_inference_steps"],
-                        step=1,
-                        label="Number of Inference Steps",
-                        info="More steps = higher quality but slower",
-                    )
-
-                    guidance_scale = gr.Slider(
-                        minimum=1.0,
-                        maximum=20.0,
-                        value=DEFAULT_CONFIG["guidance_scale"],
-                        step=0.5,
-                        label="Guidance Scale",
-                        info="1.0 = faster (no CFG), higher = stronger prompt adherence",
-                    )
-
-                    image_size = gr.Dropdown(
-                        choices=list(IMAGE_SIZE_PRESETS.keys()),
-                        value="512x512",
-                        label="Image Size",
-                    )
-
-                    seed_input = gr.Number(
-                        label="Seed",
-                        value=DEFAULT_CONFIG["seed"],
+                load_models_btn.click(
+                    fn=load_selected_models_ui,
+                    inputs=[model_selector],
+                    outputs=load_status,
+                ).then(
+                    lambda: gr.update(visible=True),
+                    outputs=load_status,
+                )
+                
+                # Image Grid Section
+                gr.Markdown("### 🔲 Create Image Grid")
+                with gr.Row():
+                    grid_rows = gr.Number(
+                        label="Grid Rows",
+                        value=1,
                         precision=0,
-                        info="-1 for random seed",
+                        minimum=1,
+                        info="Number of rows in the grid"
                     )
-
-                # Generate button
-                generate_btn = gr.Button(
-                    "🚀 Generate Images", variant="primary", size="lg"
+                    grid_cols = gr.Number(
+                        label="Grid Columns",
+                        value=2,
+                        precision=0,
+                        minimum=1,
+                        info="Number of columns in the grid"
+                    )
+                
+                create_grid_btn = gr.Button(
+                    "🎨 Create Image Grid", variant="secondary", size="sm"
                 )
-
-            with gr.Column(scale=2):
-                # Output section
-                gr.Markdown("### 🖼️ Generated Images")
-
-                output_gallery = gr.Gallery(
-                    label="Results",
-                    show_label=False,
-                    elem_id="gallery",
-                    columns=2,
-                    rows=2,
-                    height="auto",
-                    object_fit="contain",
+                
+                grid_output = gr.Image(
+                    label="Image Grid",
+                    type="filepath",
+                    visible=True
+                )
+                
+                grid_status = gr.Textbox(
+                    label="Grid Status",
+                    interactive=False,
+                    visible=True,
+                    lines=1
                 )
 
                 gr.Markdown(
@@ -256,31 +330,22 @@ def create_ui() -> gr.Blocks:
                     - Each image is saved with its seed and timestamp
                     - Use the same seed across models for fair comparison
                     - Default models are pre-loaded for faster generation
+                    - Image grids are saved to `outputs/grids/` directory
                     """
                 )
+            
+            # Tab 2: Closed-Source APIs (Single Generation)
+            with gr.Tab("🔒 Closed-Source APIs"):
+                create_closed_source_widget()
+            
+            # Tab 3: Batch API Comparison
+            with gr.Tab("🔄 API Comparison"):
+                create_batch_api_interface()
 
-        # Event handlers
-        generate_btn.click(
-            fn=generate_images_ui,
-            inputs=[
-                prompt_input,
-                negative_prompt_input,
-                model_selector,
-                num_steps,
-                guidance_scale,
-                image_size,
-                seed_input,
-            ],
-            outputs=output_gallery,
-        )
-
-        load_models_btn.click(
-            fn=load_selected_models_ui,
-            inputs=[model_selector],
-            outputs=load_status,
-        ).then(
-            lambda: gr.update(visible=True),
-            outputs=load_status,
+        create_grid_btn.click(
+            fn=create_image_grid_ui,
+            inputs=[output_gallery, grid_rows, grid_cols],
+            outputs=[grid_output, grid_status],
         )
 
     return app
@@ -291,6 +356,9 @@ def main():
     print("=" * 60)
     print("Text-to-Image Generation Case Study")
     print("=" * 60)
+    
+    # Display GPU information
+    print(f"\n{get_gpu_info()}")
 
     # Initialize default models
     print("\nInitializing default models...")

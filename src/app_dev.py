@@ -9,7 +9,7 @@ from typing import List
 from src.config import MODELS, IMAGE_SIZE_PRESETS, DEFAULT_CONFIG
 from src.model_manager import ModelManager
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage
+from src.utils import get_device, estimate_memory_usage, create_and_save_image_grid
 
 
 # Global model manager for developer mode
@@ -118,6 +118,19 @@ def generate_with_loaded_models(
     return gallery_items
 
 
+def create_image_grid_dev(gallery_data: List, rows: int, cols: int):
+    """Create an image grid from gallery images."""
+    if not gallery_data:
+        return None, "❌ No images available. Please generate images first."
+    if rows <= 0 or cols <= 0:
+        return None, "❌ Rows and columns must be positive numbers."
+    
+    image_paths = [path for path, _ in gallery_data]
+    grid_path = create_and_save_image_grid(image_paths, rows=int(rows), cols=int(cols))
+    
+    return (grid_path, f"✓ Image grid created successfully: {grid_path}") if grid_path else (None, "❌ Failed to create image grid.")
+
+
 def create_dev_ui() -> gr.Blocks:
     """Create developer mode UI."""
 
@@ -223,6 +236,41 @@ def create_dev_ui() -> gr.Blocks:
                             height="auto",
                         )
 
+                        # Image Grid Section
+                        gr.Markdown("### 🔲 Create Image Grid")
+                        with gr.Row():
+                            grid_rows = gr.Number(
+                                label="Grid Rows",
+                                value=1,
+                                precision=0,
+                                minimum=1,
+                                info="Number of rows in the grid"
+                            )
+                            grid_cols = gr.Number(
+                                label="Grid Columns",
+                                value=2,
+                                precision=0,
+                                minimum=1,
+                                info="Number of columns in the grid"
+                            )
+                        
+                        create_grid_btn = gr.Button(
+                            "🎨 Create Image Grid", variant="secondary", size="sm"
+                        )
+                        
+                        grid_output = gr.Image(
+                            label="Image Grid",
+                            type="filepath",
+                            visible=True
+                        )
+                        
+                        grid_status = gr.Textbox(
+                            label="Grid Status",
+                            interactive=False,
+                            visible=True,
+                            lines=1
+                        )
+
                 def progress_wrapper(p, np, ns, g, sz, s):
                     """Wrapper to handle progress callback."""
                     return generate_with_loaded_models(p, np, ns, g, sz, s)
@@ -231,6 +279,12 @@ def create_dev_ui() -> gr.Blocks:
                     fn=progress_wrapper,
                     inputs=[prompt, negative_prompt, num_steps, guidance, size, seed],
                     outputs=gallery,
+                )
+
+                create_grid_btn.click(
+                    fn=create_image_grid_dev,
+                    inputs=[gallery, grid_rows, grid_cols],
+                    outputs=[grid_output, grid_status],
                 )
 
     return app

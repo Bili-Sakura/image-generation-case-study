@@ -17,22 +17,23 @@ def example_single_model():
     manager = get_model_manager()
 
     # Load a model
-    model_id = "stabilityai/stable-diffusion-2-1"
+    model_id = "stabilityai/stable-diffusion-2-1-base"
     print(f"\nLoading {model_id}...")
     manager.load_model(model_id)
 
     # Generate image
-    prompt = "A serene Japanese garden with cherry blossoms and a koi pond"
+    prompt = "A cat"
     print(f"\nGenerating: {prompt}")
 
     image, filepath, seed = generate_image(
         model_id=model_id,
         prompt=prompt,
-        num_inference_steps=50,
+        num_inference_steps=25,
         guidance_scale=7.5,
-        width=768,
-        height=768,
+        width=512,
+        height=512,
         seed=42,
+        scheduler="EulerDiscreteScheduler",
     )
 
     if image:
@@ -65,6 +66,7 @@ def example_multiple_models():
         num_inference_steps=50,
         guidance_scale=7.5,
         seed=12345,  # Same seed for fair comparison
+        scheduler="EulerDiscreteScheduler",
     )
 
     # Display results
@@ -104,6 +106,7 @@ def example_with_negative_prompt():
         width=1024,
         height=1024,
         seed=-1,  # Random seed
+        scheduler="EulerDiscreteScheduler",
     )
 
     if image:
@@ -139,6 +142,7 @@ def example_batch_different_sizes():
             width=width,
             height=height,
             seed=42,
+            scheduler="EulerDiscreteScheduler",
         )
 
         if image:
