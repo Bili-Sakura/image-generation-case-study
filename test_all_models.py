@@ -17,7 +17,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.config import MODELS, LOCAL_MODEL_DIR
-from src.model_manager import ModelManager
+from src.model_manager import ModelManager, get_model_manager
 from src.inference import generate_image
 from src.utils import get_device, get_gpu_info
 
@@ -171,7 +171,7 @@ def test_all_models(
     print(f"  Skip Missing Models: {skip_missing}")
     
     # Initialize model manager
-    manager = ModelManager()
+    manager = get_model_manager()
     
     # Filter local models only (exclude API models)
     if model_id:

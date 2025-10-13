@@ -94,7 +94,7 @@ class ModelManager:
             pipeline_class = self._get_pipeline_class(local_model_path)
             
             load_kwargs = {
-                "torch_dtype": torch.float16 if self.device == "cuda" else torch.float32,
+                "torch_dtype": torch.bfloat16 if model_id == "zai-org/CogView4-6B" else (torch.float16 if self.device == "cuda" else torch.float32),
                 "use_safetensors": True,
             }
 
@@ -102,7 +102,10 @@ class ModelManager:
                 load_kwargs["use_safetensors"] = False
             
             try:
-                pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
+                if model_id == "zai-org/CogView4-6B":
+                    pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs).to(self.device)
+                else:
+                    pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
             except (AttributeError, TypeError) as e:
                 # Some models don't work well with device_map, fallback to regular loading
                 if use_device_map_now and ("device_map" in str(e) or "_parameters" in str(e)):
@@ -115,12 +118,19 @@ class ModelManager:
             
             self._load_custom_scheduler(pipe, local_model_path)
 
-            if not use_device_map_now:
+            if not use_device_map_now and model_id != "zai-org/CogView4-6B":
                 pipe = pipe.to(self.device)
 
             # Disable safety checker if not required
             if not self.model_configs[model_id].get("requires_safety_checker", False) and hasattr(pipe, "safety_checker"):
                 pipe.safety_checker = None
+            
+            if model_id == "zai-org/CogView4-6B":
+                print("Applying CogView4-specific optimizations...")
+                pipe.enable_model_cpu_offload()
+                if hasattr(pipe, "vae"):
+                    pipe.vae.enable_slicing()
+                    pipe.vae.enable_tiling()
 
             self.loaded_models[model_id] = pipe
             print(f"✓ Successfully loaded: {model_id}")
