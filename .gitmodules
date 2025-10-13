@@ -25,3 +25,7 @@
 [submodule "libs/rf-inversion"]
 	path = libs/rf-inversion
 	url = https://ghfast.top/https://github.com/LituRout/RF-Inversion.git
+
+[submodule "libs/uni-controlnet"]
+	path = libs/uni-controlnet
+	url = https://ghfast.top/https://github.com/ShihaoZhaoZSH/Uni-ControlNet.git
