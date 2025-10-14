@@ -1,6 +1,7 @@
 """
-Batch mode application for testing all models sequentially.
-This version loads, inferences, and unloads models one by one without pre-loading.
+Benchmark mode application for systematically testing all models.
+This mode loads, inferences, and unloads models one by one without pre-loading,
+providing a comprehensive benchmark across all available models.
 """
 
 import gradio as gr
@@ -11,7 +12,7 @@ from src.inference import generate_all_models_sequential
 from src.utils import get_device, get_gpu_info, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table
 
 
-def generate_batch_all_models(
+def generate_benchmark_all_models(
     prompt: str,
     negative_prompt: str,
     num_inference_steps: int,
@@ -79,7 +80,7 @@ def generate_batch_all_models(
     return gallery_items
 
 
-def create_image_grid_batch(gallery_data: List[Tuple[str, str]], rows: int, cols: int) -> Tuple[str, str]:
+def create_image_grid_bench(gallery_data: List[Tuple[str, str]], rows: int, cols: int) -> Tuple[str, str]:
     """Create an image grid from gallery images."""
     if not gallery_data:
         return None, "❌ No images available. Please generate images first."
@@ -94,9 +95,9 @@ def create_image_grid_batch(gallery_data: List[Tuple[str, str]], rows: int, cols
 
 def get_all_models_info() -> str:
     """Get information about all available models."""
-    info_lines = [f"📊 Available models for batch processing ({len(MODELS)}):"]
+    info_lines = [f"📊 Available models for benchmarking ({len(MODELS)}):"]
     info_lines.append("")
-    info_lines.append("Models will be processed in the following order:")
+    info_lines.append("Models will be benchmarked in the following order:")
     info_lines.append("")
     
     for i, (model_id, model_info) in enumerate(MODELS.items(), 1):
@@ -104,34 +105,35 @@ def get_all_models_info() -> str:
         info_lines.append(f"  {i}. {short_name}")
     
     info_lines.append("")
-    info_lines.append("Each model will be:")
-    info_lines.append("  1️⃣  Loaded into memory")
-    info_lines.append("  2️⃣  Used for inference")
-    info_lines.append("  3️⃣  Unloaded from memory")
+    info_lines.append("Benchmark workflow per model:")
+    info_lines.append("  1️⃣  Load into memory")
+    info_lines.append("  2️⃣  Generate image")
+    info_lines.append("  3️⃣  Unload from memory")
     info_lines.append("")
-    info_lines.append("⚡ This approach minimizes memory usage but takes longer.")
+    info_lines.append("⚡ Minimizes memory usage while ensuring fair comparison.")
     
     return "\n".join(info_lines)
 
 
-def create_batch_ui() -> gr.Blocks:
-    """Create batch mode UI."""
+def create_bench_ui() -> gr.Blocks:
+    """Create benchmark mode UI."""
 
     device = get_device()
     gpu_info = get_gpu_info()
 
-    with gr.Blocks(title="Batch Mode: All Models", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="Benchmark Mode: All Models", theme=gr.themes.Soft()) as app:
         gr.Markdown(
             """
-            # 🔄 Batch Mode: Test All Models
+            # 📊 Benchmark Mode: Systematic Model Evaluation
             
-            **Batch Mode Features:**
-            - Automatically tests **all** available models
-            - No pre-loading required
-            - No model selection needed
-            - Each model: Load → Inference → Unload (one by one)
-            - Minimizes memory usage
-            - Ideal for comprehensive testing and benchmarking
+            **Benchmark Mode Features:**
+            - Systematically evaluates **all** available models
+            - No pre-loading required (fresh start for each model)
+            - No model selection needed (tests everything)
+            - Workflow per model: Load → Generate → Unload
+            - Minimizes memory footprint
+            - Ensures fair comparison across all models
+            - Ideal for comprehensive evaluation and performance comparison
             """
         )
 
@@ -158,9 +160,9 @@ def create_batch_ui() -> gr.Blocks:
             gr.Markdown(get_model_params_table())
         
         # Available Models Info
-        with gr.Accordion("📝 Models to be Processed", open=True):
+        with gr.Accordion("📝 Benchmark Suite", open=True):
             models_info = gr.Textbox(
-                label="Model Processing Order",
+                label="Models to be Benchmarked",
                 value=get_all_models_info(),
                 interactive=False,
                 lines=25,
@@ -222,11 +224,12 @@ def create_batch_ui() -> gr.Blocks:
                 
                 gr.Markdown(
                     """
-                    ⚠️ **Note:**
-                    - This will process **all {} models** sequentially
-                    - Each model will be loaded, used, then unloaded
-                    - Total time depends on number of models and settings
-                    - Progress will be shown for each model
+                    ⚠️ **Benchmark Info:**
+                    - This will benchmark **all {} models** sequentially
+                    - Each model gets a fresh load to ensure fair testing
+                    - Total time varies based on model count and settings
+                    - Real-time progress shown for each model
+                    - Results comparable across all models
                     """.format(len(MODELS))
                 )
 
@@ -282,18 +285,19 @@ def create_batch_ui() -> gr.Blocks:
                 gr.Markdown(
                     """
                     ---
-                    💡 **Tips:**
-                    - Images are automatically saved to `/outputs/{timestamp}/` directory
-                    - Each generation creates a new timestamped folder with all images and a config JSON
-                    - Use the same seed for consistent comparison across models
-                    - This mode uses minimal memory since models are loaded one at a time
-                    - Image grids are saved to `outputs/grids/` directory
+                    💡 **Benchmark Tips:**
+                    - All results saved to `/outputs/{timestamp}/` directory
+                    - Each benchmark run creates a timestamped folder with all images and config JSON
+                    - Use the same seed across runs for consistent comparison
+                    - Memory-efficient: only one model loaded at a time
+                    - Create image grids for easy side-by-side comparison
+                    - Image grids saved to `outputs/grids/` directory
                     """
                 )
 
         # Event handlers
         generate_btn.click(
-            fn=generate_batch_all_models,
+            fn=generate_benchmark_all_models,
             inputs=[
                 prompt,
                 negative_prompt,
@@ -306,7 +310,7 @@ def create_batch_ui() -> gr.Blocks:
         )
         
         create_grid_btn.click(
-            fn=create_image_grid_batch,
+            fn=create_image_grid_bench,
             inputs=[output_gallery, grid_rows, grid_cols],
             outputs=[grid_output, grid_status],
         )
@@ -315,15 +319,15 @@ def create_batch_ui() -> gr.Blocks:
 
 
 def main():
-    """Main entry point for batch mode."""
+    """Main entry point for benchmark mode."""
     print("=" * 60)
-    print("Batch Mode: Test All Models")
+    print("Benchmark Mode: Systematic Model Evaluation")
     print("=" * 60)
-    print(f"\nℹ️  This mode will test all {len(MODELS)} models sequentially")
-    print("   Each model: Load → Inference → Unload")
-    print("   No pre-loading required, minimal memory usage\n")
+    print(f"\nℹ️  This mode will benchmark all {len(MODELS)} models sequentially")
+    print("   Workflow per model: Load → Generate → Unload")
+    print("   Fresh start for each model, minimal memory usage\n")
 
-    app = create_batch_ui()
+    app = create_bench_ui()
     app.launch(
         server_name="0.0.0.0",
         server_port=7862,

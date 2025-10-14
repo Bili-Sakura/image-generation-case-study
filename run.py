@@ -12,9 +12,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run.py              # Launch user mode (default)
   python run.py --dev        # Launch developer mode
-  python run.py --batch      # Launch batch mode (all models)
+  python run.py --bench      # Launch benchmark mode (all models)
   python run.py --help       # Show this help message
         """
     )
@@ -22,48 +21,36 @@ Examples:
     parser.add_argument(
         "--dev",
         action="store_true",
-        help="Launch in developer mode with manual model selection"
+        help="Launch in developer mode with manual model selection (port 7861)"
     )
     
     parser.add_argument(
-        "--batch",
+        "--bench",
         action="store_true",
-        help="Launch in batch mode (test all models sequentially with load-inference-unload)"
+        help="Launch in benchmark mode - systematically test all models with load-inference-unload cycle (port 7862)"
     )
     
     parser.add_argument(
         "--port",
         type=int,
         default=None,
-        help="Port to run the server on (default: 7860 for user mode, 7861 for dev mode, 7862 for batch mode)"
+        help="Port to run the server on (default: 7861 for dev mode, 7862 for bench mode)"
     )
     
     args = parser.parse_args()
     
-    if args.batch:
-        print("🔄 Launching Batch Mode...")
-        from src.app_batch import main as batch_main
-        if args.port:
-            import src.app_batch as app_batch
-            app_batch.main()
-        else:
-            batch_main()
+    # Require explicit mode selection
+    if not args.dev and not args.bench:
+        parser.error("Please specify a mode: --dev or --bench")
+    
+    if args.bench:
+        print("📊 Launching Benchmark Mode...")
+        from src.app_bench import main as bench_main
+        bench_main()
     elif args.dev:
         print("🔧 Launching Developer Mode...")
         from src.app_dev import main as dev_main
-        if args.port:
-            import src.app_dev as app_dev
-            app_dev.main()
-        else:
-            dev_main()
-    else:
-        print("🚀 Launching User Mode...")
-        from src.app import main as app_main
-        if args.port:
-            import src.app as app
-            app.main()
-        else:
-            app_main()
+        dev_main()
 
 
 if __name__ == "__main__":

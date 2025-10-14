@@ -88,15 +88,35 @@ MODELS = {
         "requires_safety_checker": False,
         "pipeline_class": "DiffusionPipeline",
     },
+    "kandinsky-community/kandinsky-3": {
+        "name": "Kandinsky 3",
+        "short_name": "Kandinsky-3",
+        "requires_safety_checker": False,
+        "pipeline_class": "Kandinsky3Pipeline",
+    },
+    "HiDream-ai/HiDream-I1-Dev": {
+        "name": "HiDream I1 Dev",
+        "short_name": "HiDream-I1",
+        "requires_safety_checker": False,
+        "pipeline_class": "HiDreamImagePipeline",
+    },
+    "Efficient-Large-Model/SANA1.5_1.6B_1024px_diffusers": {
+        "name": "SANA 1.5 1.6B 1024px",
+        "short_name": "SANA 1.5",
+        "requires_safety_checker": False,
+        "pipeline_class": "SanaPipeline",
+    },
+    "Alpha-VLLM/Lumina-Image-2.0": {
+        "name": "Lumina Image 2.0",
+        "short_name": "Lumina-Image-2.0",
+        "requires_safety_checker": False,
+        "pipeline_class": "Lumina2Pipeline",
+    },
 }
 
-# Default models to load on startup
-DEFAULT_MODELS = [
-    "stabilityai/stable-diffusion-2-1-base",
-    # "stabilityai/stable-diffusion-xl-base-1.0",
-    # "stabilityai/stable-cascade",
-    "stabilityai/stable-diffusion-3-medium-diffusers",
-]
+# Default models configuration (deprecated - no longer used since user mode was removed)
+# Models are now loaded manually in developer mode or automatically in batch mode
+DEFAULT_MODELS = []
 
 # Default generation parameters
 DEFAULT_CONFIG = {

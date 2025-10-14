@@ -20,6 +20,10 @@ This repo hold codes for case study of existing open-sourced diffusion models' c
 - [thu-ml/unidiffuser-v1](https://huggingface.co/thu-ml/unidiffuser-v1)
 - [stabilityai/stable-cascade](https://huggingface.co/stabilityai/stable-cascade)
 - [zai-org/CogView4-6B](https://huggingface.co/zai-org/CogView4-6B)
+- [kandinsky-community/kandinsky-3](https://huggingface.co/kandinsky-community/kandinsky-3)
+- [HiDream-ai/HiDream-I1-Dev](https://huggingface.co/HiDream-ai/HiDream-I1-Dev)
+- [Efficient-Large-Model/SANA1.5_1.6B_1024px_diffusers](https://huggingface.co/Efficient-Large-Model/SANA1.5_1.6B_1024px_diffusers)
+- [Alpha-VLLM/Lumina-Image-2.0](https://huggingface.co/Alpha-VLLM/Lumina-Image-2.0)
 
 ### Closed-Source API Services:
 
@@ -73,51 +77,31 @@ export KLING_API_KEY="your_kling_api_key"
 
 #### Option 1: Gradio Web UI (Recommended)
 
-Launch the interactive web interface:
+Launch the interactive web interface by choosing a mode:
 
-```bash
-python run.py
-```
-
-Or run directly:
-
-```bash
-python -m src.app
-```
-
-This will:
-
-- Open a web browser at `http://localhost:7860`
-- Pre-load default models (SD 2.1, SDXL, Stable Cascade, SD3)
-- Provide an intuitive UI for text-to-image generation
-
-**Features:**
-
-- 🎨 Multi-model comparison: Generate with multiple models simultaneously
-- 🔓 Open-Source Models: 14 local diffusion models
-- 🔒 Closed-Source APIs: OpenAI, Google, Bytedance, Kling
-- 🔄 API Comparison: Batch generation across multiple API providers
-- ⚙️ Configurable parameters: Steps, guidance, size, seed
-- 🖼️ Gallery view: See all results with model labels
-- 💾 Auto-save: Images saved to `/outputs/{timestamp}/` with generation config JSON
-- 📊 Memory efficient: Sequential generation
-- 🚀 Multi-GPU support: Automatic device mapping for utilizing multiple GPUs
-
-**Developer Mode:**
+**Developer Mode (Recommended for regular use):**
 
 ```bash
 python run.py --dev
 ```
 
-Allows manual model selection and one-time batch loading (port 7861).
-
-**Batch Mode:**
+**Benchmark Mode (For comprehensive evaluation):**
 
 ```bash
-python run.py --batch
+python run.py --bench
 ```
 
-Tests all models sequentially without pre-loading. Each model is loaded, used for inference, then unloaded to minimize memory usage (port 7862).
+**Features:**
+
+- 🎨 Multi-model comparison: Generate with multiple models simultaneously
+- 🔓 Open-Source Models: 18 local diffusion models
+- 🔒 Closed-Source APIs: OpenAI, Google, Bytedance, Kling (in developer mode)
+- 🔄 API Comparison: Batch generation across multiple API providers (in developer mode)
+- ⚙️ Configurable parameters: Steps, guidance, size, seed
+- 🖼️ Gallery view: See all results with model labels
+- 💾 Auto-save: Images saved to `/outputs/{timestamp}/` with generation config JSON
+- 📊 Memory efficient: Sequential generation
+- 🚀 Multi-GPU support: Automatic device mapping for utilizing multiple GPUs
 
 #### Option 2: Python API
 
@@ -185,24 +169,9 @@ See `example_api_generate.py` for more examples including batch comparisons acro
 
 ## Application Modes
 
-This application provides three different modes for different use cases:
+This application provides two different modes for different use cases:
 
-### 1. User Mode (Default - Port 7860)
-
-**Launch:**
-
-```bash
-python run.py
-```
-
-**Features:**
-
-- Pre-loads default models on startup for fast generation
-- Allows model selection from available models
-- Supports both open-source and closed-source (API) models
-- Ideal for regular usage and quick comparisons
-
-### 2. Developer Mode (Port 7861)
+### 1. Developer Mode (Port 7861)
 
 **Launch:**
 
@@ -219,41 +188,42 @@ python run.py --dev
 - Fast sequential inference with pre-loaded models
 - Ideal for development and testing specific model combinations
 
-### 3. Batch Mode (Port 7862)
+### 2. Benchmark Mode (Port 7862)
 
 **Launch:**
 
 ```bash
-python run.py --batch
+python run.py --bench
 ```
 
 **Features:**
 
-- **No pre-loading** - starts with empty memory
-- **No model selection** - automatically tests all available models
-- **Sequential processing**: Load → Inference → Unload (one by one)
-- Minimizes memory usage (only one model loaded at a time)
-- Ideal for comprehensive benchmarking and testing
+- **No pre-loading** - starts with clean memory state
+- **No model selection** - systematically evaluates all available models
+- **Sequential workflow**: Load → Generate → Unload (per model)
+- Minimizes memory footprint (only one model loaded at a time)
+- Ensures fair comparison with fresh start for each model
+- Ideal for comprehensive evaluation and performance benchmarking
 - Perfect for limited VRAM scenarios
 
 **Comparison:**
 
-| Feature          | User Mode | Developer Mode | Batch Mode   |
-| ---------------- | --------- | -------------- | ------------ |
-| Pre-loading      | Yes       | Manual         | No           |
-| Model Selection  | Yes       | Yes            | No (All)     |
-| Memory Usage     | Medium    | High           | Low          |
-| Generation Speed | Fast      | Fastest        | Slow         |
-| Ideal For        | General   | Development    | Benchmarking |
+| Feature          | Developer Mode | Benchmark Mode |
+| ---------------- | -------------- | -------------- |
+| Pre-loading      | Manual         | No             |
+| Model Selection  | Yes            | No (All)       |
+| Memory Usage     | High           | Low            |
+| Generation Speed | Fastest        | Slower         |
+| Use Case         | Development    | Evaluation     |
+| Port             | 7861           | 7862           |
 
 ## Project Structure
 
 ```
 image-generation-case-study/
 ├── src/                          # Application source code
-│   ├── app.py                    # Main Gradio UI (user mode)
-│   ├── app_dev.py                # Developer mode UI
-│   ├── app_batch.py              # Batch mode UI (all models)
+│   ├── app_dev.py                # Developer mode UI (port 7861)
+│   ├── app_bench.py              # Benchmark mode UI (port 7862)
 │   ├── config.py                 # Model configurations
 │   ├── model_manager.py          # Model loading & caching
 │   ├── inference.py              # Generation logic
@@ -269,13 +239,13 @@ image-generation-case-study/
 ├── requirements.txt              # Python dependencies (base)
 ├── requirements_api.txt          # API dependencies (optional)
 ├── .env.example                  # Environment variable template
-├── run.py                        # Launcher script
+├── run.py                        # Launcher script (requires --dev or --bench)
 └── README.md                     # This file
 ```
 
 ## Features
 
-### Supported Models (14 Total)
+### Supported Models (18 Total)
 
 | Model                | Size   | VRAM   | Resolution | Notes                 |
 | -------------------- | ------ | ------ | ---------- | --------------------- |
@@ -293,13 +263,12 @@ image-generation-case-study/
 | UniDiffuser v1       | Base   | ~5 GB  | 512x512    | Unified model         |
 | Stable Cascade       | Large  | ~10 GB | 1024x1024  | Multi-stage           |
 | CogView4 6B          | 6B     | ~11 GB | 1024x1024  | Latest CogView        |
+| Kandinsky 3          | Large  | ~6 GB  | 1024x1024  | Russian model         |
+| HiDream I1 Dev       | Large  | ~12 GB | 1024x1024  | High-quality results  |
+| SANA 1.5 1.6B        | 1.6B   | ~4 GB  | 1024x1024  | Efficient generation  |
+| Lumina Image 2.0     | Large  | ~8 GB  | 1024x1024  | Advanced Lumina       |
 
-**Default models** (pre-loaded on startup):
-
-- Stable Diffusion 2.1
-- Stable Diffusion XL
-- Stable Cascade
-- Stable Diffusion 3
+**Note:** In developer mode, you can select which models to load. In benchmark mode, all models are evaluated automatically with consistent parameters.
 
 ### Closed-Source API Models
 

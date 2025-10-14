@@ -132,6 +132,13 @@ class ModelManager:
                 if hasattr(pipe, "vae"):
                     pipe.vae.enable_slicing()
                     pipe.vae.enable_tiling()
+            elif model_id in ["Alpha-VLLM/Lumina-Image-2.0", "HiDream-ai/HiDream-I1-Dev"]:
+                print(f"Applying optimizations for {model_id}...")
+                if not use_device_map_now:  # Only apply CPU offload if not using device_map
+                    pipe.enable_model_cpu_offload()
+                if hasattr(pipe, "vae"):
+                    pipe.vae.enable_slicing()
+                    pipe.vae.enable_tiling()
 
             self.loaded_models[model_id] = pipe
             print(f"✓ Successfully loaded: {model_id}")

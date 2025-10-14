@@ -76,6 +76,11 @@ def generate_image(
         # Use true_cfg_scale for Qwen-Image, guidance_scale for other models
         if model_id == "Qwen/Qwen-Image":
             gen_kwargs["true_cfg_scale"] = guidance_scale
+        elif model_id == "Alpha-VLLM/Lumina-Image-2.0":
+            # Lumina-Image-2.0 supports additional CFG parameters
+            gen_kwargs["guidance_scale"] = guidance_scale
+            gen_kwargs["cfg_trunc_ratio"] = 0.25
+            gen_kwargs["cfg_normalization"] = True
         else:
             gen_kwargs["guidance_scale"] = guidance_scale
 
@@ -327,7 +332,7 @@ def generate_all_models_sequential(
         },
         "models": model_results,
         "output_directory": str(output_dir),
-        "mode": "batch_all_models",
+        "mode": "benchmark_all_models",
     }
     
     save_generation_config(output_dir, config_data)
