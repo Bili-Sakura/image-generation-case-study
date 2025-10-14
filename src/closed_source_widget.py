@@ -8,8 +8,9 @@ from PIL import Image
 import traceback
 
 from src.api_clients import get_api_client
-from src.utils import save_image, seed_everything
+from src.utils import save_image, seed_everything, get_gpu_vram_usage, get_timestamp_output_dir, save_generation_config
 from src.config import CLOSED_SOURCE_MODELS
+from datetime import datetime
 
 
 def generate_with_api(
@@ -34,7 +35,26 @@ def generate_with_api(
         if error:
             return None, error, seed_used
         if image:
-            filepath = save_image(image, f"{provider}/{model or 'default'}", seed_used, prompt)
+            # Create timestamped directory for this generation
+            output_dir = get_timestamp_output_dir()
+            filepath = save_image(image, f"{provider}/{model or 'default'}", seed_used, output_dir)
+            
+            # Save generation config JSON
+            config_data = {
+                "timestamp": datetime.now().isoformat(),
+                "provider": provider,
+                "model": model or "default",
+                "prompt": prompt,
+                "parameters": {
+                    "width": width,
+                    "height": height,
+                    "seed": seed_used,
+                },
+                "image_path": filepath,
+                "output_directory": str(output_dir),
+            }
+            save_generation_config(output_dir, config_data)
+            
             return image, filepath, seed_used
         return None, "Failed to generate image", seed_used
     except Exception as e:
@@ -90,7 +110,7 @@ def create_closed_source_widget() -> gr.Blocks:
                     - `SEEDDREAM_ACCESS_KEY_ID`
                     - `SEEDDREAM_SECRET_ACCESS_KEY`
                     
-                    Images are saved to `outputs/seeddream/` directory.
+                    Images are saved to `/outputs/{timestamp}/` directory with generation config JSON.
                     """
                 )
 
@@ -122,3 +142,75 @@ def create_closed_source_widget() -> gr.Blocks:
         )
     
     return widget
+
+
+def create_batch_api_interface() -> gr.Blocks:
+    """Create a batch API comparison interface."""
+    with gr.Blocks() as interface:
+        gr.Markdown(
+            """
+            ## 🔄 Batch API Comparison
+            Generate images with multiple prompts and compare results.
+            """
+        )
+        
+        with gr.Row():
+            with gr.Column():
+                batch_prompts = gr.Textbox(
+                    label="Prompts (one per line)",
+                    placeholder="Enter multiple prompts, one per line...",
+                    lines=5,
+                )
+                
+                batch_width = gr.Slider(512, 2048, 1328, step=64, label="Width")
+                batch_height = gr.Slider(512, 2048, 1328, step=64, label="Height")
+                batch_seed = gr.Number(label="Seed", value=-1, precision=0)
+                
+                batch_generate_btn = gr.Button("🚀 Generate All", variant="primary", size="lg")
+            
+            with gr.Column():
+                batch_output = gr.Gallery(
+                    label="Generated Images",
+                    columns=2,
+                    height="auto",
+                )
+                batch_status = gr.Textbox(label="Status", lines=5, interactive=False)
+        
+        def batch_generate_handler(prompts_text, width, height, seed, progress=gr.Progress()):
+            """Handle batch generation."""
+            if not prompts_text:
+                return [], "⚠️ Please enter at least one prompt!"
+            
+            prompts = [p.strip() for p in prompts_text.strip().split("\n") if p.strip()]
+            if not prompts:
+                return [], "⚠️ No valid prompts found!"
+            
+            results = []
+            status_lines = []
+            
+            for i, prompt in enumerate(prompts):
+                progress((i + 1, len(prompts)), desc=f"Generating {i+1}/{len(prompts)}...")
+                
+                image, result, seed_used = generate_with_api(
+                    prompt=prompt,
+                    width=int(width),
+                    height=int(height),
+                    seed=int(seed),
+                )
+                
+                if image:
+                    results.append((result, f"Prompt {i+1}: {prompt[:50]}... (seed: {seed_used})"))
+                    status_lines.append(f"✅ Prompt {i+1}: Success (seed: {seed_used})")
+                else:
+                    status_lines.append(f"❌ Prompt {i+1}: {result}")
+            
+            final_status = f"Completed {len(results)}/{len(prompts)} images\n\n" + "\n".join(status_lines)
+            return results, final_status
+        
+        batch_generate_btn.click(
+            fn=batch_generate_handler,
+            inputs=[batch_prompts, batch_width, batch_height, batch_seed],
+            outputs=[batch_output, batch_status],
+        )
+    
+    return interface

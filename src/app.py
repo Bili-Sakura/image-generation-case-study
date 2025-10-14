@@ -9,7 +9,7 @@ import torch
 from src.config import MODELS, DEFAULT_MODELS, DEFAULT_CONFIG, IMAGE_SIZE_PRESETS
 from src.model_manager import get_model_manager, initialize_default_models
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage, get_gpu_info, create_and_save_image_grid
+from src.utils import get_device, estimate_memory_usage, get_gpu_info, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table
 from src.closed_source_widget import create_closed_source_widget, create_batch_api_interface
 
 
@@ -106,7 +106,7 @@ def load_selected_models_ui(selected_models: List[str], progress=gr.Progress()) 
     loaded, failed = [], []
 
     for i, model_id in enumerate(selected_models):
-        progress((i, len(selected_models)), desc=f"Loading {model_id}...")
+        progress((i + 1, len(selected_models)), desc=f"Loading {model_id}...")
         try:
             manager.load_model(model_id)
             loaded.append(MODELS[model_id]["short_name"])
@@ -156,6 +156,26 @@ def create_ui() -> gr.Blocks:
         )
 
         gr.Markdown(f"**Device:** {device}\n\n{gpu_info}")
+        
+        # GPU VRAM Usage Monitor
+        with gr.Accordion("📊 GPU VRAM Monitor", open=False):
+            vram_display = gr.Textbox(
+                label="Real-time VRAM Usage",
+                value=get_gpu_vram_usage(),
+                interactive=False,
+                lines=8,
+                show_copy_button=True,
+            )
+            refresh_vram_btn = gr.Button("🔄 Refresh VRAM", size="sm")
+            refresh_vram_btn.click(fn=get_gpu_vram_usage, outputs=vram_display)
+        
+        # Auto-refresh VRAM display every 5 seconds
+        vram_timer = gr.Timer(value=5, active=True)
+        vram_timer.tick(fn=get_gpu_vram_usage, outputs=vram_display)
+        
+        # Model Parameters Table
+        with gr.Accordion("📋 Model Parameters & VRAM Reference", open=False):
+            gr.Markdown(get_model_params_table())
         
         # Create tabs for open-source and closed-source models
         with gr.Tabs():
@@ -256,8 +276,8 @@ def create_ui() -> gr.Blocks:
                             """
                             ---
                             💡 **Tips:**
-                            - Images are automatically saved to `outputs/{model_name}/` directory
-                            - Each image is saved with its seed and timestamp
+                            - Images are automatically saved to `/outputs/{timestamp}/` directory
+                            - Each generation creates a new timestamped folder with all images and a config JSON
                             - Use the same seed across models for fair comparison
                             - Default models are pre-loaded for faster generation
                             """
@@ -326,8 +346,8 @@ def create_ui() -> gr.Blocks:
                     """
                     ---
                     💡 **Tips:**
-                    - Images are automatically saved to `outputs/{model_name}/` directory
-                    - Each image is saved with its seed and timestamp
+                    - Images are automatically saved to `/outputs/{timestamp}/` directory
+                    - Each generation creates a new timestamped folder with all images and a config JSON
                     - Use the same seed across models for fair comparison
                     - Default models are pre-loaded for faster generation
                     - Image grids are saved to `outputs/grids/` directory

@@ -15,7 +15,8 @@ import importlib
 
 from src.model_manager import get_model_manager
 from src.config import MODELS, DEFAULT_CONFIG, LOCAL_MODEL_DIR
-from src.utils import save_image, seed_everything
+from src.utils import save_image, seed_everything, get_timestamp_output_dir, save_generation_config
+from pathlib import Path
 
 
 def generate_image(
@@ -29,9 +30,11 @@ def generate_image(
     seed: int = -1,
     scheduler: Optional[str] = None,
     progress_callback: Optional[Callable] = None,
+    output_dir: Optional[Path] = None,
+    model_manager = None,
 ) -> Tuple[Optional[Image.Image], str, int]:
     """Generate a single image with a specific model."""
-    manager = get_model_manager()
+    manager = model_manager if model_manager is not None else get_model_manager()
     model_config = MODELS.get(model_id, {})
 
     # Use defaults if not provided
@@ -40,6 +43,10 @@ def generate_image(
     width = width or DEFAULT_CONFIG["width"]
     height = height or DEFAULT_CONFIG["height"]
     seed_used = seed_everything(seed)
+
+    # Create output directory if not provided
+    if output_dir is None:
+        output_dir = get_timestamp_output_dir()
 
     try:
         pipe = manager.get_pipeline(model_id) or manager.load_model(model_id)
@@ -54,7 +61,7 @@ def generate_image(
                 print(f"Warning: Could not find or load scheduler '{scheduler}'. Using model's default.")
 
         if progress_callback:
-            progress_callback(f"Generating with {model_config.get('short_name', model_id)}...")
+            progress_callback(f"Generating with {model_config.get('short_name', model_id)}...", 0, 1)
 
         # Prepare generation parameters
         generator_device = "cpu" if manager.use_device_map else manager.device
@@ -91,10 +98,10 @@ def generate_image(
             gen_kwargs.pop("guidance_scale", None)
 
         image = pipe(**gen_kwargs).images[0]
-        filepath = save_image(image, model_id, seed_used, prompt)
+        filepath = save_image(image, model_id, seed_used, output_dir)
 
         if progress_callback:
-            progress_callback(f"✓ Completed {model_config.get('short_name', model_id)}")
+            progress_callback(f"✓ Completed {model_config.get('short_name', model_id)}", 0, 1)
 
         return image, filepath, seed_used
     except Exception as e:
@@ -102,7 +109,7 @@ def generate_image(
         print(error_msg)
         print(traceback.format_exc())
         if progress_callback:
-            progress_callback(f"✗ Failed: {model_config.get('short_name', model_id)}")
+            progress_callback(f"✗ Failed: {model_config.get('short_name', model_id)}", 0, 1)
         return None, error_msg, seed_used
 
 
@@ -117,10 +124,24 @@ def generate_images_sequential(
     seed: int = -1,
     scheduler: Optional[str] = None,
     progress_callback: Optional[Callable] = None,
+    model_manager = None,
 ) -> List[Tuple[str, Optional[Image.Image], str, int]]:
     """Generate images sequentially with multiple models."""
+    from datetime import datetime
+    
     base_seed = seed_everything(-1) if seed == -1 else seed
+    
+    # Create single timestamp directory for all outputs
+    output_dir = get_timestamp_output_dir()
+    
+    # Use defaults if not provided
+    num_inference_steps = num_inference_steps or DEFAULT_CONFIG["num_inference_steps"]
+    guidance_scale = guidance_scale or DEFAULT_CONFIG["guidance_scale"]
+    width = width or DEFAULT_CONFIG["width"]
+    height = height or DEFAULT_CONFIG["height"]
+    
     results = []
+    model_results = []
 
     for i, model_id in enumerate(model_ids):
         if progress_callback:
@@ -132,8 +153,38 @@ def generate_images_sequential(
             num_inference_steps=num_inference_steps, guidance_scale=guidance_scale,
             width=width, height=height, seed=base_seed, scheduler=scheduler,
             progress_callback=None,  # Avoid nested callbacks
+            output_dir=output_dir,
+            model_manager=model_manager,
         )
         results.append((model_id, image, filepath, seed_used))
+        
+        # Collect model info for config
+        if image is not None:
+            model_results.append({
+                "model_id": model_id,
+                "model_name": MODELS.get(model_id, {}).get("short_name", model_id),
+                "image_path": filepath,
+                "seed_used": seed_used,
+            })
+
+    # Save generation config JSON
+    config_data = {
+        "timestamp": datetime.now().isoformat(),
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "parameters": {
+            "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
+            "width": width,
+            "height": height,
+            "seed": base_seed,
+            "scheduler": scheduler,
+        },
+        "models": model_results,
+        "output_directory": str(output_dir),
+    }
+    
+    save_generation_config(output_dir, config_data)
 
     return results
 

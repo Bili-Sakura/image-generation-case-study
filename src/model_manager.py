@@ -101,6 +101,10 @@ class ModelManager:
             if model_id == "thu-ml/unidiffuser-v1":
                 load_kwargs["use_safetensors"] = False
             
+            # Add device_map if multi-GPU mode is enabled
+            if use_device_map_now:
+                load_kwargs["device_map"] = "balanced"
+            
             try:
                 if model_id == "zai-org/CogView4-6B":
                     pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs).to(self.device)

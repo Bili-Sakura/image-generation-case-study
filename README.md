@@ -99,7 +99,7 @@ This will:
 - 🔄 API Comparison: Batch generation across multiple API providers
 - ⚙️ Configurable parameters: Steps, guidance, size, seed
 - 🖼️ Gallery view: See all results with model labels
-- 💾 Auto-save: Images saved to `outputs/{model_name}/`
+- 💾 Auto-save: Images saved to `/outputs/{timestamp}/` with generation config JSON
 - 📊 Memory efficient: Sequential generation
 - 🚀 Multi-GPU support: Automatic device mapping for utilizing multiple GPUs
 
@@ -189,7 +189,7 @@ image-generation-case-study/
 │   ├── closed_source_widget.py   # Gradio widget for APIs
 │   ├── utils.py                  # Utility functions
 │   └── README.md                 # Detailed documentation
-├── outputs/                      # Generated images (organized by model)
+├── outputs/                      # Generated images (organized by timestamp)
 ├── libs/                         # Reference libraries
 │   ├── diffusers/
 │   ├── transformers/
@@ -231,12 +231,12 @@ image-generation-case-study/
 
 ### Closed-Source API Models
 
-| Provider         | Models Available     | Max Resolution | Special Features              |
-| ---------------- | -------------------- | -------------- | ----------------------------- |
-| OpenAI DALL-E    | DALL-E 2, DALL-E 3   | 1792x1792      | Quality & style controls      |
-| Google Imagen    | Imagen v5            | 1536x1536      | Photorealistic generation     |
-| Bytedance Cloud  | Text2Img v1          | 2048x2048      | Fast API response             |
-| Kling AI         | Kling v1, v1 Pro     | 2048x2048      | High-quality generation       |
+| Provider        | Models Available   | Max Resolution | Special Features          |
+| --------------- | ------------------ | -------------- | ------------------------- |
+| OpenAI DALL-E   | DALL-E 2, DALL-E 3 | 1792x1792      | Quality & style controls  |
+| Google Imagen   | Imagen v5          | 1536x1536      | Photorealistic generation |
+| Bytedance Cloud | Text2Img v1        | 2048x2048      | Fast API response         |
+| Kling AI        | Kling v1, v1 Pro   | 2048x2048      | High-quality generation   |
 
 **API Features:**
 
@@ -274,22 +274,24 @@ Multi-GPU mode enabled: 2 GPUs detected
 
 ### Output Organization
 
-Images are automatically organized:
+Images are automatically organized by timestamp:
 
 ```
-outputs/
-├── stabilityai-stable-diffusion-2-1/
-│   ├── 20251009_140530_seed12345.png
-│   └── 20251009_140530_seed12345.txt
-├── stabilityai-stable-diffusion-xl-base-1.0/
+/outputs/
+├── 20251009_140530/
+│   ├── SD2.1_20251009_140530_seed12345.png
+│   ├── SDXL_20251009_140531_seed12345.png
+│   ├── FLUX.1-dev_20251009_140532_seed12345.png
+│   └── generation_config.json
+├── 20251009_141030/
 │   └── ...
 └── ...
 ```
 
-Each generation includes:
+Each generation batch includes:
 
-- PNG image file
-- TXT metadata (model, prompt, seed, timestamp)
+- Multiple PNG image files (one per model)
+- Single JSON config file with all generation parameters and model information
 
 ## Citation
 

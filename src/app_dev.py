@@ -9,7 +9,7 @@ from typing import List
 from src.config import MODELS, IMAGE_SIZE_PRESETS, DEFAULT_CONFIG
 from src.model_manager import ModelManager
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage, create_and_save_image_grid
+from src.utils import get_device, estimate_memory_usage, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table
 
 
 # Global model manager for developer mode
@@ -32,31 +32,86 @@ def initialize_dev_models(selected_models: List[str], progress=gr.Progress()) ->
     if not selected_models:
         return "❌ No models selected. Please select at least one model."
 
-    # Create new model manager
-    dev_model_manager = ModelManager()
-    loaded_model_ids = []
+    # Create model manager only once with device_map enabled
+    if dev_model_manager is None:
+        dev_model_manager = ModelManager(use_device_map=True)
+        loaded_model_ids = []
+        status_lines = ["🔧 Created new ModelManager with device_map=balanced mode"]
+    else:
+        status_lines = [f"📌 Using existing ModelManager ({len(loaded_model_ids)} models already loaded)"]
 
-    status_lines = ["Loading models..."]
+    status_lines.append("Loading new models...")
+    
+    newly_loaded = []
+    failed_models = []
+    skipped_models = []
 
     for i, model_id in enumerate(selected_models):
         progress(
-            (i, len(selected_models)),
+            (i + 1, len(selected_models)),
             desc=f"Loading {MODELS[model_id]['short_name']}...",
         )
+        
+        # Skip already loaded models
+        if model_id in loaded_model_ids:
+            skipped_models.append(MODELS[model_id]['short_name'])
+            status_lines.append(f"⏭️  {MODELS[model_id]['short_name']} (already loaded)")
+            continue
+        
         try:
             dev_model_manager.load_model(model_id)
             loaded_model_ids.append(model_id)
+            newly_loaded.append(MODELS[model_id]['short_name'])
             status_lines.append(f"✓ {MODELS[model_id]['short_name']}")
         except Exception as e:
+            failed_models.append((MODELS[model_id]['short_name'], str(e)))
             status_lines.append(f"✗ {MODELS[model_id]['short_name']}: {str(e)}")
 
-    if loaded_model_ids:
-        status_lines.append(
-            f"\n🎉 Successfully loaded {len(loaded_model_ids)}/{len(selected_models)} models"
-        )
-        return "\n".join(status_lines)
-    else:
-        return "❌ Failed to load any models. Check console for details."
+    # Summary
+    status_lines.append("\n" + "="*50)
+    if newly_loaded:
+        status_lines.append(f"✅ Newly loaded: {len(newly_loaded)} model(s)")
+    if skipped_models:
+        status_lines.append(f"⏭️  Already loaded: {len(skipped_models)} model(s)")
+    if failed_models:
+        status_lines.append(f"❌ Failed: {len(failed_models)} model(s)")
+    status_lines.append(f"📊 Total loaded: {len(loaded_model_ids)} model(s)")
+    
+    return "\n".join(status_lines)
+
+
+def unload_all_models() -> str:
+    """Unload all models and reset the model manager."""
+    global dev_model_manager, loaded_model_ids
+    
+    if dev_model_manager is None:
+        return "ℹ️ No models loaded."
+    
+    model_count = len(loaded_model_ids)
+    dev_model_manager.unload_all_models()
+    dev_model_manager = None
+    loaded_model_ids = []
+    
+    return f"🗑️ Successfully unloaded {model_count} model(s) and freed GPU memory."
+
+
+def get_loaded_models_info() -> str:
+    """Get information about currently loaded models."""
+    global dev_model_manager, loaded_model_ids
+    
+    if not loaded_model_ids:
+        return "ℹ️ No models currently loaded."
+    
+    info_lines = [f"📊 Currently loaded models ({len(loaded_model_ids)}):"]
+    info_lines.append("")
+    
+    for model_id in loaded_model_ids:
+        model_info = MODELS.get(model_id, {})
+        short_name = model_info.get('short_name', model_id)
+        memory = estimate_memory_usage(model_id)
+        info_lines.append(f"  • {short_name} ({memory})")
+    
+    return "\n".join(info_lines)
 
 
 def generate_with_loaded_models(
@@ -95,6 +150,14 @@ def generate_with_loaded_models(
     # Get dimensions
     width, height = IMAGE_SIZE_PRESETS.get(image_size, (1024, 1024))
 
+    # Progress callback wrapper
+    def update_progress(msg: str, current: int = 0, total: int = 1):
+        """Update progress with message."""
+        if current > 0 and total > 0:
+            progress((current, total), desc=msg)
+        else:
+            progress(0, desc=msg)
+    
     # Generate images
     results = generate_images_sequential(
         model_ids=loaded_model_ids,
@@ -105,7 +168,8 @@ def generate_with_loaded_models(
         width=width,
         height=height,
         seed=seed,
-        progress_callback=lambda msg: progress(msg),
+        progress_callback=update_progress,
+        model_manager=dev_model_manager,
     )
 
     # Format for gallery
@@ -149,6 +213,26 @@ def create_dev_ui() -> gr.Blocks:
         )
 
         gr.Markdown(f"**Device:** {device}")
+        
+        # GPU VRAM Usage Monitor
+        with gr.Accordion("📊 GPU VRAM Monitor", open=False):
+            vram_display = gr.Textbox(
+                label="Real-time VRAM Usage",
+                value=get_gpu_vram_usage(),
+                interactive=False,
+                lines=8,
+                show_copy_button=True,
+            )
+            refresh_vram_btn = gr.Button("🔄 Refresh VRAM", size="sm")
+            refresh_vram_btn.click(fn=get_gpu_vram_usage, outputs=vram_display)
+        
+        # Auto-refresh VRAM display every 5 seconds
+        vram_timer = gr.Timer(value=5, active=True)
+        vram_timer.tick(fn=get_gpu_vram_usage, outputs=vram_display)
+        
+        # Model Parameters Table
+        with gr.Accordion("📋 Model Parameters & VRAM Reference", open=False):
+            gr.Markdown(get_model_params_table())
 
         with gr.Tabs():
             # Tab 1: Model Setup
@@ -169,22 +253,49 @@ def create_dev_ui() -> gr.Blocks:
                 model_selection = gr.CheckboxGroup(
                     choices=model_choices,
                     label="Select Models",
-                    info="Choose models to load into memory",
+                    info="Choose models to load into memory (accumulative loading - previously loaded models are kept)",
                 )
 
-                load_btn = gr.Button(
-                    "🚀 Load Selected Models", variant="primary", size="lg"
-                )
+                with gr.Row():
+                    load_btn = gr.Button(
+                        "🚀 Load Selected Models", variant="primary", size="lg"
+                    )
+                    view_loaded_btn = gr.Button(
+                        "👁️ View Loaded Models", variant="secondary", size="sm"
+                    )
+                    unload_btn = gr.Button(
+                        "🗑️ Unload All Models", variant="stop", size="sm"
+                    )
 
                 load_status = gr.Textbox(
-                    label="Loading Status",
+                    label="Model Status",
                     lines=10,
                     interactive=False,
+                )
+                
+                gr.Markdown(
+                    """
+                    **💡 Tips:**
+                    - Models are loaded with `device_map="balanced"` for optimal GPU distribution
+                    - Previously loaded models are **kept in memory** (accumulative loading)
+                    - Use "View Loaded Models" to see what's currently in memory
+                    - Use "Unload All Models" to clear memory and start fresh
+                    """
                 )
 
                 load_btn.click(
                     fn=initialize_dev_models,
                     inputs=[model_selection],
+                    outputs=load_status,
+                )
+                
+                view_loaded_btn.click(
+                    fn=get_loaded_models_info,
+                    outputs=load_status,
+                )
+                
+                unload_btn.click(
+                    fn=unload_all_models,
                     outputs=load_status,
                 )
 
@@ -271,12 +382,8 @@ def create_dev_ui() -> gr.Blocks:
                             lines=1
                         )
 
-                def progress_wrapper(p, np, ns, g, sz, s):
-                    """Wrapper to handle progress callback."""
-                    return generate_with_loaded_models(p, np, ns, g, sz, s)
-
                 gen_btn.click(
-                    fn=progress_wrapper,
+                    fn=generate_with_loaded_models,
                     inputs=[prompt, negative_prompt, num_steps, guidance, size, seed],
                     outputs=gallery,
                 )
