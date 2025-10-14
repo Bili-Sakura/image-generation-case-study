@@ -102,7 +102,7 @@ python run.py --bench
 - 💾 Auto-save: Images saved to `/outputs/{timestamp}/` with generation config JSON
 - 📊 Memory efficient: Sequential generation
 - 🚀 Multi-GPU support: Automatic device mapping for utilizing multiple GPUs
-- 🔬 **Compute Profiling**: FLOPs and MACs calculation to measure computational cost
+- 🔬 **Compute Profiling**: FLOPs and MACs calculation using thop with SDPA handling to accurately measure computational cost
 
 #### Option 2: Python API
 
@@ -312,19 +312,23 @@ image-generation-case-study/
 
 ### Compute Profiling (NEW!)
 
-Measure the computational cost of different models during inference:
+Measure the computational cost of different models during inference using `thop` library:
 
 - **FLOPs** (Floating Point Operations): Total compute operations
 - **MACs** (Multiply-Accumulate Operations): Number of multiply-add operations
 - **Parameters**: Model size (number of parameters)
 - **Inference Time**: Actual wall-clock generation time
-- **Throughput**: TFLOP/s (computational efficiency)
+- **Component Breakdown**: Separate measurements for UNet/Transformer, VAE, and Text Encoder
+- **SDPA Handling**: Accurate attention mechanism profiling
 
 **Quick Example:**
 
 ```bash
-# Run profiling examples
+# Run basic profiling examples
 python example_profiling.py
+
+# Run detailed component-wise profiling
+python example_profiling_detailed.py
 ```
 
 **Features:**
