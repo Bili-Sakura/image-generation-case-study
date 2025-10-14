@@ -73,7 +73,7 @@ def profile_single_model():
         
     elif not profiling_data or not profiling_data.get("enabled"):
         print("\n⚠️  Profiling was disabled or failed.")
-        print("  Make sure 'calflops' is installed: pip install calflops")
+        print("  Make sure 'thop' is installed: pip install thop")
     else:
         print(f"\n✗ Generation failed")
 

@@ -21,10 +21,16 @@ This helps you:
 
 ## Installation
 
-The profiling feature uses the `calflops` library, which is already included in `requirements.txt`:
+The profiling feature uses the `thop` library (PyTorch-OpCounter), which is already included in `environment.yaml`:
 
 ```bash
-pip install calflops
+pip install thop
+```
+
+Alternatively, you can install a specific version:
+
+```bash
+pip install thop==0.1.1-2209072238
 ```
 
 ## Quick Start
@@ -145,7 +151,39 @@ This demonstrates:
 - Multi-model comparison
 - Resolution impact analysis
 
-### Example 3: Batch Profiling
+### Example 3: Detailed Component Breakdown
+
+Run the detailed profiling example:
+
+```bash
+python example_profiling_detailed.py
+```
+
+This shows:
+
+- Component-wise MACs breakdown (UNet, VAE, Text Encoder)
+- Percentage contribution of each component
+- Compute scaling with different step counts
+- Resolution impact analysis with relative costs
+
+Sample output:
+```
+Component-wise MACs Breakdown:
+----------------------------------------------------------------------
+  UNet (per step):          339.224 GMACs
+  Text Encoder (once):        6.148 GMACs
+  VAE Decoder (once):        49.432 GMACs
+----------------------------------------------------------------------
+  Total (30 steps):        10232.300 GMACs
+
+Percentage Breakdown:
+----------------------------------------------------------------------
+  UNet:           99.46%
+  Text Encoder:    0.06%
+  VAE Decoder:     0.48%
+```
+
+### Example 4: Batch Profiling
 
 When using batch generation, profiling data is automatically saved to the JSON config file:
 
@@ -274,7 +312,7 @@ If profiling is disabled, check:
 
 3. Check console warnings:
    ```
-   ⚠️  calflops not installed. Install with: pip install calflops
+   ⚠️  thop not installed. Install with: pip install thop
    ```
 
 ### Unexpected Results
@@ -326,11 +364,40 @@ profiling_data = profiler.profile_pipeline(
 # Use profiling_data...
 ```
 
+## Technical Details
+
+### thop Library
+
+The profiler now uses `thop` (PyTorch-OpCounter) which provides:
+
+- Accurate MAC counting for conv and linear layers
+- Lightweight and fast profiling
+- Better compatibility with custom modules
+
+### SDPA Handling
+
+The profiler includes special handling for Scaled Dot Product Attention (SDPA):
+
+- Automatically counts attention MACs: `QK^T + softmax + attention @ V`
+- Formula: `MACs = 2 * B * heads * N^2 * head_dim + B * heads * N^2`
+- Integrated via monkeypatch during profiling passes
+
+### Component Breakdown
+
+The new profiler measures three components separately:
+
+1. **UNet/Transformer**: Main denoising network (per step)
+2. **Text Encoder**: CLIP text encoding (once per generation)
+3. **VAE Decoder**: Latent to image decoding (once per generation)
+
+Total compute: `UNet × steps + Text Encoder + VAE Decoder`
+
 ## References
 
-- [calflops library documentation](https://pypi.org/project/calflops/)
+- [thop library (PyTorch-OpCounter)](https://github.com/Lyken17/pytorch-OpCounter)
 - [Understanding FLOPs in Deep Learning](https://medium.com/swlh/understanding-flops-in-deep-learning-6f5eae2f4f0b)
 - [Efficient Diffusion Models](https://arxiv.org/abs/2209.00796)
+- [Attention Mechanisms and Compute](https://arxiv.org/abs/1706.03762)
 
 ## Future Enhancements
 

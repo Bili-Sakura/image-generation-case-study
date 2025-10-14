@@ -1,15 +1,67 @@
 """
 Compute profiler for calculating FLOPs and MACs during inference.
+Rewritten to use thop library with SDPA handling.
 """
 
 import torch
 from typing import Dict, Optional, Tuple
 from diffusers import DiffusionPipeline
-import time
+import torch.nn.functional as F
+
+
+# --- SDPA FLOPs helper (approx) ---
+# SDPA (QK^T softmax V) ~ 2 * B * heads * N^2 * head_dim + B * heads * N^2 (softmax) + B * heads * N * N (attn * V) * head_dim
+# We'll register a lightweight counter for torch.nn.functional.scaled_dot_product_attention if present.
+
+def sdpa_flops(q, k, v):
+    """Calculate FLOPs for scaled dot product attention.
+    
+    Args:
+        q, k, v: Query, key, value tensors [B, heads, N, head_dim]
+    
+    Returns:
+        Total MACs for SDPA operation
+    """
+    # q,k,v: [B, heads, N, head_dim]
+    B, H, N, D = q.shape
+    # qk^T: B*H*N*N*D  (MACs: N*N*D; FLOPs ≈ 2x MACs; we stick to MACs)
+    mac_qk = B * H * N * N * D
+    # softmax: ~B*H*N*N  (cheap; include as MACs≈N*N)
+    mac_softmax = B * H * N * N
+    # attn @ v: B*H*N*N*D
+    mac_av = B * H * N * N * D
+    return mac_qk + mac_softmax + mac_av
+
+
+# Monkeypatch wrapper to count SDPA MACs during a profiling pass
+_sdpa_macs_counter = {"macs": 0}
+_orig_sdpa = None
+
+
+def _wrap_sdpa_for_macs():
+    """Wrap SDPA function to count MACs during profiling."""
+    global _orig_sdpa
+    if _orig_sdpa is not None:
+        return
+    _orig_sdpa = F.scaled_dot_product_attention
+    
+    def wrapped(q, k, v, *args, **kwargs):
+        _sdpa_macs_counter["macs"] += sdpa_flops(q, k, v)
+        return _orig_sdpa(q, k, v, *args, **kwargs)
+    
+    F.scaled_dot_product_attention = wrapped
+
+
+def _unwrap_sdpa():
+    """Restore original SDPA function."""
+    global _orig_sdpa
+    if _orig_sdpa is not None:
+        F.scaled_dot_product_attention = _orig_sdpa
+        _orig_sdpa = None
 
 
 class ComputeProfiler:
-    """Profiler for measuring FLOPs, MACs, and inference time."""
+    """Profiler for measuring FLOPs, MACs, and inference time using thop."""
     
     def __init__(self, enabled: bool = True):
         """Initialize the compute profiler.
@@ -18,17 +70,282 @@ class ComputeProfiler:
             enabled: Whether to enable profiling (can be disabled for performance).
         """
         self.enabled = enabled
-        self._calflops_available = False
+        self._thop_available = False
         
         if self.enabled:
             try:
-                from calflops import calculate_flops
-                self._calflops_available = True
-                self._calculate_flops = calculate_flops
+                from thop import profile
+                self._thop_available = True
+                self._profile = profile
             except ImportError:
-                print("⚠️  calflops not installed. Install with: pip install calflops")
+                print("⚠️  thop not installed. Install with: pip install thop")
+                print("   Alternative: pip install thop==0.1.1-2209072238")
                 print("   FLOPs/MACs profiling will be disabled.")
                 self.enabled = False
+    
+    def _encode_text(self, pipe, prompt: str, negative_prompt: str = ""):
+        """Encode text prompts using the pipeline's text encoder.
+        
+        Args:
+            pipe: The diffusion pipeline
+            prompt: The main prompt
+            negative_prompt: The negative prompt
+            
+        Returns:
+            Tuple of (conditional_embeddings, unconditional_embeddings)
+        """
+        device = pipe.device if hasattr(pipe, 'device') else next(pipe.text_encoder.parameters()).device
+        tokenizer = pipe.tokenizer
+        
+        enc = tokenizer(
+            [prompt], 
+            padding="max_length", 
+            truncation=True, 
+            max_length=77, 
+            return_tensors="pt"
+        ).to(device)
+        
+        neg = tokenizer(
+            [negative_prompt], 
+            padding="max_length", 
+            truncation=True, 
+            max_length=77, 
+            return_tensors="pt"
+        ).to(device)
+        
+        with torch.no_grad():
+            te = pipe.text_encoder(enc.input_ids)[0]
+            te_neg = pipe.text_encoder(neg.input_ids)[0]
+        
+        return te, te_neg
+    
+    def measure_unet_macs(
+        self, 
+        pipe, 
+        height: int = 512, 
+        width: int = 512, 
+        prompt: str = "a photo of a cat", 
+        guidance_scale: float = 7.5
+    ) -> int:
+        """Measure MACs for UNet forward pass.
+        
+        Args:
+            pipe: The diffusion pipeline
+            height: Image height
+            width: Image width
+            prompt: Text prompt for conditioning
+            guidance_scale: Guidance scale (affects whether we do 1 or 2 passes)
+            
+        Returns:
+            MACs per inference step
+        """
+        if not self._thop_available:
+            return 0
+        
+        # Get the UNet/Transformer model
+        model = None
+        if hasattr(pipe, 'unet') and pipe.unet is not None:
+            model = pipe.unet
+        elif hasattr(pipe, 'transformer') and pipe.transformer is not None:
+            model = pipe.transformer
+        
+        if model is None:
+            return 0
+        
+        model.eval()
+        device = next(model.parameters()).device
+        dtype = next(model.parameters()).dtype
+        
+        with torch.no_grad():
+            # Latent spatial dims are /8
+            h8, w8 = height // 8, width // 8
+            
+            # Determine latent channels based on model type
+            if hasattr(pipe, 'unet'):
+                latent_channels = 4  # Standard for SD UNet
+            else:
+                latent_channels = 16  # Common for transformers
+            
+            sample = torch.randn(1, latent_channels, h8, w8, device=device, dtype=dtype)
+            t = torch.tensor([500], device=device, dtype=torch.long)  # any valid timestep
+            
+            # Try to encode text if text encoder is available
+            try:
+                cond, uncond = self._encode_text(pipe, prompt, "")
+            except:
+                # Fallback: use dummy embeddings
+                if hasattr(model, 'config'):
+                    encoder_dim = getattr(model.config, 'cross_attention_dim', 1024)
+                else:
+                    encoder_dim = 1024
+                cond = torch.randn(1, 77, encoder_dim, device=device, dtype=dtype)
+                uncond = torch.randn(1, 77, encoder_dim, device=device, dtype=dtype)
+            
+            # Wrap SDPA for attention MAC counting
+            _wrap_sdpa_for_macs()
+            
+            # Profile one UNet pass (conditional)
+            def unet_forward_cond(x):
+                return model(x, t, encoder_hidden_states=cond, return_dict=False)[0]
+            
+            try:
+                macs_cond, _ = self._profile(unet_forward_cond, inputs=(sample.clone(),), verbose=False)
+            except:
+                macs_cond = 0
+            
+            # Profile one UNet pass (unconditional)
+            def unet_forward_uncond(x):
+                return model(x, t, encoder_hidden_states=uncond, return_dict=False)[0]
+            
+            try:
+                macs_uncond, _ = self._profile(unet_forward_uncond, inputs=(sample.clone(),), verbose=False)
+            except:
+                macs_uncond = 0
+            
+            sdpa_macs = _sdpa_macs_counter["macs"]
+            _sdpa_macs_counter["macs"] = 0
+            _unwrap_sdpa()
+            
+            # THOP counts linear/conv MACs well; SDPA is undercounted unless we add it.
+            macs_unet_single = (macs_cond + macs_uncond) / 2  # average single pass
+            macs_unet_single += sdpa_macs  # add SDPA contribution once (approx per pass)
+            
+            # If CFG>1, per step we do two UNet passes
+            per_step = macs_unet_single * (2 if guidance_scale and guidance_scale > 1.0 else 1)
+            return int(per_step)
+    
+    def measure_vae_decode_macs(self, pipe, height: int = 512, width: int = 512) -> int:
+        """Measure MACs for VAE decoder.
+        
+        Args:
+            pipe: The diffusion pipeline
+            height: Image height
+            width: Image width
+            
+        Returns:
+            MACs for VAE decode operation
+        """
+        if not self._thop_available or not hasattr(pipe, 'vae'):
+            return 0
+        
+        pipe.vae.eval()
+        device = next(pipe.vae.parameters()).device
+        dtype = next(pipe.vae.parameters()).dtype
+        
+        with torch.no_grad():
+            h8, w8 = height // 8, width // 8
+            latents = torch.randn(1, 4, h8, w8, device=device, dtype=dtype)
+            
+            def vae_decode(z):
+                scaling_factor = getattr(pipe.vae.config, 'scaling_factor', 0.18215)
+                return pipe.vae.decode(z / scaling_factor, return_dict=False)[0]
+            
+            try:
+                macs, _ = self._profile(vae_decode, inputs=(latents,), verbose=False)
+                return int(macs)
+            except:
+                return 0
+    
+    def measure_text_encoder_macs(
+        self, 
+        pipe, 
+        prompt: str = "a photo of a cat", 
+        negative_prompt: str = ""
+    ) -> int:
+        """Measure MACs for text encoder.
+        
+        Args:
+            pipe: The diffusion pipeline
+            prompt: Text prompt
+            negative_prompt: Negative text prompt
+            
+        Returns:
+            MACs for text encoding (both prompts)
+        """
+        if not self._thop_available or not hasattr(pipe, 'text_encoder'):
+            return 0
+        
+        device = next(pipe.text_encoder.parameters()).device
+        tokenizer = pipe.tokenizer
+        
+        with torch.no_grad():
+            enc = tokenizer(
+                [prompt], 
+                padding="max_length", 
+                truncation=True, 
+                max_length=77, 
+                return_tensors="pt"
+            ).to(device)
+            
+            neg = tokenizer(
+                [negative_prompt], 
+                padding="max_length", 
+                truncation=True, 
+                max_length=77, 
+                return_tensors="pt"
+            ).to(device)
+            
+            def run_te(ids):
+                return pipe.text_encoder(ids, return_dict=False)[0]
+            
+            try:
+                macs1, _ = self._profile(run_te, inputs=(enc.input_ids,), verbose=False)
+            except:
+                macs1 = 0
+            
+            try:
+                macs2, _ = self._profile(run_te, inputs=(neg.input_ids,), verbose=False)
+            except:
+                macs2 = 0
+            
+            return int(macs1 + macs2)
+    
+    def summarize_macs(
+        self,
+        pipe,
+        height: int = 512,
+        width: int = 512,
+        steps: int = 30,
+        prompt: str = "a photo of a cat",
+        guidance_scale: float = 7.5,
+    ) -> Dict[str, any]:
+        """Summarize MACs for complete image generation.
+        
+        Args:
+            pipe: The diffusion pipeline
+            height: Image height
+            width: Image width
+            steps: Number of inference steps
+            prompt: Text prompt
+            guidance_scale: Guidance scale
+            
+        Returns:
+            Dictionary with MAC counts and formatted strings
+        """
+        if not self.enabled or not self._thop_available:
+            return {
+                "enabled": False,
+                "UNet per-step (MACs)": 0,
+                "UNet per-step (GMACs)": 0.0,
+                "Text encoder once (GMACs)": 0.0,
+                "VAE decode once (GMACs)": 0.0,
+                f"Total {steps} steps (GMACs)": 0.0,
+            }
+        
+        m_unet_step = self.measure_unet_macs(pipe, height, width, prompt, guidance_scale)
+        m_vae = self.measure_vae_decode_macs(pipe, height, width)
+        m_text = self.measure_text_encoder_macs(pipe, prompt, "")
+        total = m_unet_step * steps + m_vae + m_text
+        
+        to_gmac = lambda x: x / 1e9
+        
+        return {
+            "UNet per-step (MACs)": m_unet_step,
+            "UNet per-step (GMACs)": round(to_gmac(m_unet_step), 3),
+            "Text encoder once (GMACs)": round(to_gmac(m_text), 3),
+            "VAE decode once (GMACs)": round(to_gmac(m_vae), 3),
+            f"Total {steps} steps (GMACs)": round(to_gmac(total), 3),
+        }
     
     def profile_pipeline(
         self,
@@ -36,6 +353,7 @@ class ComputeProfiler:
         input_shape: Tuple[int, int, int, int],
         num_inference_steps: int = 50,
         model_id: str = "unknown",
+        guidance_scale: float = 7.5,
     ) -> Dict[str, any]:
         """Profile a diffusion pipeline to calculate FLOPs and MACs.
         
@@ -44,11 +362,12 @@ class ComputeProfiler:
             input_shape: Input tensor shape (batch_size, channels, height, width)
             num_inference_steps: Number of inference steps
             model_id: Model identifier for reporting
+            guidance_scale: Guidance scale for generation
             
         Returns:
             Dictionary containing FLOPs, MACs, parameters, and other metrics
         """
-        if not self.enabled or not self._calflops_available:
+        if not self.enabled or not self._thop_available:
             return {
                 "enabled": False,
                 "total_flops": 0,
@@ -59,11 +378,13 @@ class ComputeProfiler:
             }
         
         try:
-            # Profile the UNet/Transformer (main compute component)
+            # Extract dimensions
+            batch_size, channels, height, width = input_shape
+            
+            # Get model component
             model_to_profile = None
             model_name = "model"
             
-            # Try to get the main model component
             if hasattr(pipe, 'transformer') and pipe.transformer is not None:
                 model_to_profile = pipe.transformer
                 model_name = "transformer"
@@ -75,146 +396,25 @@ class ComputeProfiler:
                 print(f"⚠️  Could not find transformer/unet in pipeline for {model_id}")
                 return self._empty_profile()
             
-            # Calculate FLOPs for a single forward pass
-            # Note: We use a dummy input to estimate compute
             print(f"📊 Profiling {model_name} for {model_id}...")
             
-            # Create input args for the model
-            batch_size, channels, height, width = input_shape
-            latent_height = height // 8  # Common VAE downsampling factor
-            latent_width = width // 8
+            # Measure MACs for each component
+            m_unet_step = self.measure_unet_macs(pipe, height, width, "a photo", guidance_scale)
+            m_vae = self.measure_vae_decode_macs(pipe, height, width)
+            m_text = self.measure_text_encoder_macs(pipe, "a photo", "")
             
-            # Prepare kwargs for calflops based on model type
-            flops_per_step = 0
-            macs_per_step = 0
-            params = 0
+            # Calculate totals
+            total_macs = m_unet_step * num_inference_steps + m_vae + m_text
+            # FLOPs ≈ 2 × MACs (since each MAC involves multiply + add)
+            total_flops = total_macs * 2
+            flops_per_step = m_unet_step * 2
+            macs_per_step = m_unet_step
             
-            # Get device - handle accelerate hooks
+            # Count parameters
             try:
-                device = next(model_to_profile.parameters()).device
-            except StopIteration:
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            
-            if model_name == "transformer":
-                # For transformer-based models (FLUX, SD3, etc.)
-                # Most transformers take latent inputs
-                latent_channels = 16  # Common for transformers
-                input_shape_for_profile = (batch_size, latent_channels, latent_height, latent_width)
-                
-                # Transformers typically need: hidden_states, timestep, encoder_hidden_states
-                try:
-                    flops, macs, params = self._calculate_flops(
-                        model=model_to_profile,
-                        input_shape=input_shape_for_profile,
-                        print_results=False,
-                        print_detailed=False,
-                    )
-                    flops_per_step = flops
-                    macs_per_step = macs
-                except Exception as e:
-                    print(f"⚠️  Could not calculate FLOPs for transformer {model_id}: {e}")
-                    try:
-                        params = sum(p.numel() for p in model_to_profile.parameters())
-                    except:
-                        pass
-            else:
-                # For UNet-based models - need sample, timestep, encoder_hidden_states
-                latent_channels = 4  # Common for UNet latent space
-                input_shape_for_profile = (batch_size, latent_channels, latent_height, latent_width)
-                
-                try:
-                    # Get encoder hidden states dimension from model config
-                    if hasattr(model_to_profile, 'config'):
-                        encoder_dim = getattr(model_to_profile.config, 'cross_attention_dim', 1024)
-                    else:
-                        encoder_dim = 1024  # Default
-                    
-                    # Create wrapper module class
-                    class UNetWrapper(torch.nn.Module):
-                        """Wrapper module for UNet that handles additional inputs."""
-                        def __init__(self, unet, encoder_dim):
-                            super().__init__()
-                            self.unet = unet
-                            self.encoder_dim = encoder_dim
-                        
-                        def forward(self, sample, timestep=None, encoder_hidden_states=None, **kwargs):
-                            """Forward with all required UNet arguments."""
-                            if timestep is None:
-                                timestep = torch.tensor([1], device=sample.device)
-                            if encoder_hidden_states is None:
-                                encoder_hidden_states = torch.randn(
-                                    sample.shape[0], 77, self.encoder_dim,
-                                    device=sample.device, dtype=sample.dtype
-                                )
-                            return self.unet(
-                                sample=sample,
-                                timestep=timestep,
-                                encoder_hidden_states=encoder_hidden_states,
-                                return_dict=False,
-                                **kwargs
-                            )
-                    
-                    # Create wrapper instance
-                    wrapped_model = UNetWrapper(model_to_profile, encoder_dim)
-                    
-                    # Capture calflops output - it may return strings or numbers depending on version
-                    result = self._calculate_flops(
-                        model=wrapped_model,
-                        input_shape=input_shape_for_profile,
-                        print_results=False,
-                        print_detailed=False,
-                    )
-                    
-                    # Handle different return formats from calflops
-                    if isinstance(result, tuple) and len(result) >= 3:
-                        flops_val, macs_val, params_val = result[0], result[1], result[2]
-                        
-                        # Convert to float if they're strings
-                        if isinstance(flops_val, str):
-                            # Extract numeric value from formatted string like "678.72 GFLOPS"
-                            try:
-                                # Remove repeated strings if present
-                                if "FLOPS" in flops_val:
-                                    flops_val = flops_val.split("FLOPS")[0].strip()
-                                flops_per_step = self._parse_formatted_value(flops_val)
-                            except:
-                                flops_per_step = 0
-                        else:
-                            flops_per_step = float(flops_val) if flops_val else 0
-                        
-                        if isinstance(macs_val, str):
-                            try:
-                                if "MACS" in macs_val or "MACs" in macs_val:
-                                    macs_val = macs_val.split("MAC")[0].strip()
-                                macs_per_step = self._parse_formatted_value(macs_val)
-                            except:
-                                macs_per_step = 0
-                        else:
-                            macs_per_step = float(macs_val) if macs_val else 0
-                        
-                        if isinstance(params_val, str):
-                            try:
-                                params = self._parse_formatted_value(params_val)
-                            except:
-                                params = sum(p.numel() for p in model_to_profile.parameters())
-                        else:
-                            params = int(params_val) if params_val else 0
-                    else:
-                        flops_per_step = 0
-                        macs_per_step = 0
-                        
-                except Exception as e:
-                    print(f"⚠️  Could not calculate FLOPs for {model_id}: {e}")
-                    print(f"   This may be due to model using accelerate hooks or unsupported operations.")
-                    # Try to at least count parameters
-                    try:
-                        params = sum(p.numel() for p in model_to_profile.parameters())
-                    except:
-                        pass
-            
-            # Multiply by number of inference steps to get total compute
-            total_flops = flops_per_step * num_inference_steps if flops_per_step else 0
-            total_macs = macs_per_step * num_inference_steps if macs_per_step else 0
+                params = sum(p.numel() for p in model_to_profile.parameters())
+            except:
+                params = 0
             
             return {
                 "enabled": True,
@@ -226,13 +426,20 @@ class ComputeProfiler:
                 "macs_per_step": macs_per_step,
                 "num_inference_steps": num_inference_steps,
                 "input_shape": input_shape,
-                "latent_shape": input_shape_for_profile,
+                "latent_shape": (batch_size, 4 if model_name == "unet" else 16, height // 8, width // 8),
                 # Human readable formats
                 "total_flops_str": self._format_compute(total_flops, "FLOPs"),
                 "total_macs_str": self._format_compute(total_macs, "MACs"),
                 "params_str": self._format_params(params),
                 "flops_per_step_str": self._format_compute(flops_per_step, "FLOPs"),
                 "macs_per_step_str": self._format_compute(macs_per_step, "MACs"),
+                # Additional breakdowns
+                "unet_macs_per_step": m_unet_step,
+                "unet_macs_per_step_str": self._format_compute(m_unet_step, "MACs"),
+                "vae_macs": m_vae,
+                "vae_macs_str": self._format_compute(m_vae, "MACs"),
+                "text_encoder_macs": m_text,
+                "text_encoder_macs_str": self._format_compute(m_text, "MACs"),
             }
             
         except Exception as e:
@@ -297,45 +504,6 @@ class ComputeProfiler:
             return f"{value/1e3:.2f}K"
         else:
             return str(value)
-    
-    def _parse_formatted_value(self, value_str: str) -> float:
-        """Parse a formatted value string back to numeric value.
-        
-        Args:
-            value_str: Formatted string like "678.72" or "678.72 G"
-            
-        Returns:
-            Numeric value
-        """
-        if not value_str or not isinstance(value_str, str):
-            return 0.0
-        
-        # Remove whitespace
-        value_str = value_str.strip()
-        
-        # Split number and unit
-        parts = value_str.split()
-        if not parts:
-            return 0.0
-        
-        try:
-            number = float(parts[0])
-        except ValueError:
-            return 0.0
-        
-        # Check for unit multiplier
-        if len(parts) > 1:
-            unit = parts[1].upper()
-            if unit.startswith('T'):
-                number *= 1e12
-            elif unit.startswith('G'):
-                number *= 1e9
-            elif unit.startswith('M'):
-                number *= 1e6
-            elif unit.startswith('K'):
-                number *= 1e3
-        
-        return number
 
 
 def create_profiler(enabled: bool = True) -> ComputeProfiler:
@@ -348,4 +516,3 @@ def create_profiler(enabled: bool = True) -> ComputeProfiler:
         ComputeProfiler instance
     """
     return ComputeProfiler(enabled=enabled)
-
