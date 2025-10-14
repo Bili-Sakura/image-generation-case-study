@@ -14,6 +14,7 @@ def main():
 Examples:
   python run.py              # Launch user mode (default)
   python run.py --dev        # Launch developer mode
+  python run.py --batch      # Launch batch mode (all models)
   python run.py --help       # Show this help message
         """
     )
@@ -25,15 +26,29 @@ Examples:
     )
     
     parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="Launch in batch mode (test all models sequentially with load-inference-unload)"
+    )
+    
+    parser.add_argument(
         "--port",
         type=int,
         default=None,
-        help="Port to run the server on (default: 7860 for user mode, 7861 for dev mode)"
+        help="Port to run the server on (default: 7860 for user mode, 7861 for dev mode, 7862 for batch mode)"
     )
     
     args = parser.parse_args()
     
-    if args.dev:
+    if args.batch:
+        print("🔄 Launching Batch Mode...")
+        from src.app_batch import main as batch_main
+        if args.port:
+            import src.app_batch as app_batch
+            app_batch.main()
+        else:
+            batch_main()
+    elif args.dev:
         print("🔧 Launching Developer Mode...")
         from src.app_dev import main as dev_main
         if args.port:

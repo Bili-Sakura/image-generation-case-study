@@ -111,6 +111,14 @@ python run.py --dev
 
 Allows manual model selection and one-time batch loading (port 7861).
 
+**Batch Mode:**
+
+```bash
+python run.py --batch
+```
+
+Tests all models sequentially without pre-loading. Each model is loaded, used for inference, then unloaded to minimize memory usage (port 7862).
+
 #### Option 2: Python API
 
 Use the modules programmatically:
@@ -175,6 +183,69 @@ else:
 
 See `example_api_generate.py` for more examples including batch comparisons across multiple APIs.
 
+## Application Modes
+
+This application provides three different modes for different use cases:
+
+### 1. User Mode (Default - Port 7860)
+
+**Launch:**
+
+```bash
+python run.py
+```
+
+**Features:**
+
+- Pre-loads default models on startup for fast generation
+- Allows model selection from available models
+- Supports both open-source and closed-source (API) models
+- Ideal for regular usage and quick comparisons
+
+### 2. Developer Mode (Port 7861)
+
+**Launch:**
+
+```bash
+python run.py --dev
+```
+
+**Features:**
+
+- Manual model selection with checkboxes
+- One-time batch loading of selected models
+- All selected models stay loaded in memory
+- Accumulative loading (can add more models without unloading)
+- Fast sequential inference with pre-loaded models
+- Ideal for development and testing specific model combinations
+
+### 3. Batch Mode (Port 7862)
+
+**Launch:**
+
+```bash
+python run.py --batch
+```
+
+**Features:**
+
+- **No pre-loading** - starts with empty memory
+- **No model selection** - automatically tests all available models
+- **Sequential processing**: Load → Inference → Unload (one by one)
+- Minimizes memory usage (only one model loaded at a time)
+- Ideal for comprehensive benchmarking and testing
+- Perfect for limited VRAM scenarios
+
+**Comparison:**
+
+| Feature          | User Mode | Developer Mode | Batch Mode   |
+| ---------------- | --------- | -------------- | ------------ |
+| Pre-loading      | Yes       | Manual         | No           |
+| Model Selection  | Yes       | Yes            | No (All)     |
+| Memory Usage     | Medium    | High           | Low          |
+| Generation Speed | Fast      | Fastest        | Slow         |
+| Ideal For        | General   | Development    | Benchmarking |
+
 ## Project Structure
 
 ```
@@ -182,6 +253,7 @@ image-generation-case-study/
 ├── src/                          # Application source code
 │   ├── app.py                    # Main Gradio UI (user mode)
 │   ├── app_dev.py                # Developer mode UI
+│   ├── app_batch.py              # Batch mode UI (all models)
 │   ├── config.py                 # Model configurations
 │   ├── model_manager.py          # Model loading & caching
 │   ├── inference.py              # Generation logic

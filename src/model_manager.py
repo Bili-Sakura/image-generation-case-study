@@ -94,12 +94,9 @@ class ModelManager:
             pipeline_class = self._get_pipeline_class(local_model_path)
             
             load_kwargs = {
-                "torch_dtype": torch.bfloat16 if model_id == "zai-org/CogView4-6B" else (torch.float16 if self.device == "cuda" else torch.float32),
-                "use_safetensors": True,
+                "torch_dtype": torch.bfloat16,
+                # "use_safetensors": True,
             }
-
-            if model_id == "thu-ml/unidiffuser-v1":
-                load_kwargs["use_safetensors"] = False
             
             # Add device_map if multi-GPU mode is enabled
             if use_device_map_now:
