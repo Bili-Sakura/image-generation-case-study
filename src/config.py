@@ -118,6 +118,39 @@ MODELS = {
 # Models are now loaded manually in developer mode or automatically in batch mode
 DEFAULT_MODELS = []
 
+# Unified scheduler configuration
+# Models are categorized by their training paradigm
+FLOW_MATCHING_MODELS = [
+    "black-forest-labs/FLUX.1-dev",
+    "stabilityai/stable-diffusion-3-medium-diffusers",
+    "Alpha-VLLM/Lumina-Next-SFT-diffusers",
+    "Efficient-Large-Model/Sana_600M_512px_diffusers",
+    "Efficient-Large-Model/SANA1.5_1.6B_1024px_diffusers",
+    "Qwen/Qwen-Image",
+    "Alpha-VLLM/Lumina-Image-2.0",
+    "zai-org/CogView4-6B",
+    "HiDream-ai/HiDream-I1-Dev",
+]
+
+DIFFUSION_MODELS = [
+    "stabilityai/stable-diffusion-2-1-base",
+    "stabilityai/stable-diffusion-xl-base-1.0",
+    "zai-org/CogView3-Plus-3B",
+    "PixArt-alpha/PixArt-XL-2-512x512",
+    "PixArt-alpha/PixArt-Sigma-XL-2-512-MS",
+    "Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers",
+    "thu-ml/unidiffuser-v1",
+    "kandinsky-community/kandinsky-3",
+]
+
+# Stable Cascade uses a special scheduler and architecture
+SPECIAL_SCHEDULER_MODELS = [
+    "stabilityai/stable-cascade",
+]
+
+# Enable unified scheduler (set to False to use model's original scheduler)
+USE_UNIFIED_SCHEDULER = False
+
 # Default generation parameters
 DEFAULT_CONFIG = {
     "num_inference_steps": 50,
@@ -126,7 +159,8 @@ DEFAULT_CONFIG = {
     "height": 512,
     "seed": -1,  # -1 means random
     "negative_prompt": "",
-    # "scheduler": "EulerDiscreteScheduler",  # Unified scheduler for all models
+    "use_unified_scheduler": False,  # Apply EulerDiscreteScheduler or FlowMatchEulerDiscreteScheduler
+    "enable_profiling": True,  # Enable FLOPs/MACs computation profiling during inference
 }
 
 # Image size presets
@@ -142,6 +176,9 @@ IMAGE_SIZE_PRESETS = {
 
 # Output directory
 OUTPUT_DIR = "outputs"
+
+# Compute profiling configuration
+ENABLE_COMPUTE_PROFILING = True  # Global flag to enable/disable FLOPs and MACs calculation
 
 # Local model folder path
 LOCAL_MODEL_DIR = "/data/liuzicheng/zhenyuan/models"

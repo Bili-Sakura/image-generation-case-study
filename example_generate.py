@@ -25,20 +25,29 @@ def example_single_model():
     prompt = "A cat"
     print(f"\nGenerating: {prompt}")
 
-    image, filepath, seed = generate_image(
+    image, filepath, seed, profiling_data = generate_image(
         model_id=model_id,
         prompt=prompt,
-        num_inference_steps=25,
+        num_inference_steps=50,
         guidance_scale=7.5,
         width=512,
         height=512,
         seed=42,
-        scheduler="EulerDiscreteScheduler",
+        scheduler="DDIMScheduler",
+        enable_profiling=True,  # Enable compute profiling
     )
 
     if image:
         print(f"\n✓ Image saved to: {filepath}")
         print(f"  Seed used: {seed}")
+        
+        # Display profiling data if available
+        if profiling_data and profiling_data.get("enabled"):
+            print(f"\n📊 Compute Statistics:")
+            print(f"  Parameters: {profiling_data.get('params_str', 'N/A')}")
+            print(f"  Total FLOPs: {profiling_data.get('total_flops_str', 'N/A')}")
+            print(f"  Total MACs: {profiling_data.get('total_macs_str', 'N/A')}")
+            print(f"  Inference Time: {profiling_data.get('inference_time_str', 'N/A')}")
     else:
         print(f"\n✗ Generation failed: {filepath}")
 

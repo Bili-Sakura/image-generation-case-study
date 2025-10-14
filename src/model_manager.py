@@ -9,9 +9,11 @@ import json
 import importlib
 from diffusers import DiffusionPipeline
 from diffusers.pipelines.lumina.pipeline_lumina import LuminaPipeline
+from diffusers.pipelines.stable_cascade.pipeline_stable_cascade import StableCascadeDecoderPipeline
+from diffusers.pipelines.stable_cascade.pipeline_stable_cascade_prior import StableCascadePriorPipeline
 import gc
 
-from src.config import MODELS, DEFAULT_MODELS, LOCAL_MODEL_DIR
+from src.config import MODELS, DEFAULT_MODELS, LOCAL_MODEL_DIR, FLOW_MATCHING_MODELS, DIFFUSION_MODELS, SPECIAL_SCHEDULER_MODELS, USE_UNIFIED_SCHEDULER
 from src.utils import get_device
 
 
@@ -58,6 +60,47 @@ class ModelManager:
                 return LuminaPipeline
         return DiffusionPipeline
 
+    def _apply_unified_scheduler(self, pipe: DiffusionPipeline, model_id: str):
+        """Apply unified scheduler based on model type.
+        
+        Flow matching models -> FlowMatchEulerDiscreteScheduler
+        Diffusion models -> EulerDiscreteScheduler
+        Special models -> Keep original scheduler
+        """
+        if not USE_UNIFIED_SCHEDULER:
+            return
+        
+        # Skip models with special schedulers
+        if model_id in SPECIAL_SCHEDULER_MODELS:
+            print(f"Keeping original scheduler for special model: {model_id}")
+            return
+        
+        try:
+            from diffusers import EulerDiscreteScheduler, FlowMatchEulerDiscreteScheduler
+            
+            if model_id in FLOW_MATCHING_MODELS:
+                # Apply FlowMatchEulerDiscreteScheduler for flow matching models
+                pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+                    pipe.scheduler.config,
+                    shift=3.0,  # Common shift value for flow matching
+                )
+                print(f"✓ Applied FlowMatchEulerDiscreteScheduler to {model_id}")
+                
+            elif model_id in DIFFUSION_MODELS:
+                # Apply EulerDiscreteScheduler for diffusion models
+                pipe.scheduler = EulerDiscreteScheduler.from_config(
+                    pipe.scheduler.config,
+                    timestep_spacing="trailing",
+                )
+                print(f"✓ Applied EulerDiscreteScheduler to {model_id}")
+            else:
+                # For models not explicitly categorized, try to auto-detect
+                print(f"⚠️ Model {model_id} not categorized. Keeping original scheduler.")
+                
+        except Exception as e:
+            print(f"⚠️ Could not apply unified scheduler to {model_id}: {e}")
+            print(f"   Keeping original scheduler.")
+    
     def _load_custom_scheduler(self, pipe: DiffusionPipeline, model_path: str):
         """Load a custom scheduler if defined in the model's directory."""
         scheduler_config_path = os.path.join(model_path, "scheduler", "scheduler_config.json")
@@ -107,9 +150,10 @@ class ModelManager:
                     pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs).to(self.device)
                 else:
                     pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
-            except (AttributeError, TypeError) as e:
-                # Some models don't work well with device_map, fallback to regular loading
-                if use_device_map_now and ("device_map" in str(e) or "_parameters" in str(e)):
+            except (AttributeError, TypeError, NotImplementedError) as e:
+                # Some models don't work well with device_map, or accelerate is not installed
+                # Fallback to regular loading
+                if use_device_map_now and ("device_map" in str(e) or "_parameters" in str(e) or "accelerate" in str(e)):
                     print(f"⚠️  device_map failed for {model_id}, retrying without device_map...")
                     load_kwargs.pop("device_map", None)
                     pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
@@ -117,7 +161,8 @@ class ModelManager:
                 else:
                     raise
             
-            self._load_custom_scheduler(pipe, local_model_path)
+            # Apply unified scheduler (EulerDiscreteScheduler or FlowMatchEulerDiscreteScheduler)
+            self._apply_unified_scheduler(pipe, model_id)
 
             if not use_device_map_now and model_id != "zai-org/CogView4-6B":
                 pipe = pipe.to(self.device)
@@ -185,6 +230,51 @@ class ModelManager:
     def get_pipeline(self, model_id: str) -> Optional[DiffusionPipeline]:
         """Get a loaded pipeline."""
         return self.loaded_models.get(model_id)
+
+    def get_stable_cascade_prior_embeddings(
+        self,
+        pipe: StableCascadeDecoderPipeline,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+    ):
+        """Load Stable Cascade prior pipeline and generate image embeddings.
+        
+        Args:
+            pipe: The StableCascadeDecoderPipeline instance
+            prompt: Text prompt
+            negative_prompt: Negative prompt
+            seed: Random seed
+            
+        Returns:
+            Image embeddings tensor
+        """
+        prior_model_path = os.path.join(LOCAL_MODEL_DIR, "stabilityai/stable-cascade-prior")
+        if not os.path.exists(prior_model_path):
+            prior_model_path = "stabilityai/stable-cascade-prior"
+
+        try:
+            prior_pipeline = StableCascadePriorPipeline.from_pretrained(
+                prior_model_path, torch_dtype=pipe.dtype, device_map="balanced"
+            )
+        except (NotImplementedError, Exception) as e:
+            # Fallback without device_map if accelerate is not available
+            if "accelerate" in str(e):
+                print(f"⚠️  Loading Stable Cascade prior without device_map (accelerate not available)")
+                prior_pipeline = StableCascadePriorPipeline.from_pretrained(
+                    prior_model_path, torch_dtype=pipe.dtype
+                ).to(self.device)
+            else:
+                raise
+        prompt_embeds = prior_pipeline(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            generator=torch.Generator(device="cpu").manual_seed(seed),
+            num_inference_steps=20,
+            guidance_scale=4.0,
+        ).image_embeddings
+        
+        return prompt_embeds
 
 
 # Global model manager instance

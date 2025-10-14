@@ -102,6 +102,7 @@ python run.py --bench
 - 💾 Auto-save: Images saved to `/outputs/{timestamp}/` with generation config JSON
 - 📊 Memory efficient: Sequential generation
 - 🚀 Multi-GPU support: Automatic device mapping for utilizing multiple GPUs
+- 🔬 **Compute Profiling**: FLOPs and MACs calculation to measure computational cost
 
 #### Option 2: Python API
 
@@ -131,15 +132,24 @@ from src.inference import generate_image
 manager = get_model_manager()
 manager.load_model("stabilityai/stable-diffusion-2-1")
 
-# Generate
-image, filepath, seed = generate_image(
+# Generate with compute profiling
+image, filepath, seed, profiling_data = generate_image(
     model_id="stabilityai/stable-diffusion-2-1",
     prompt="A fantasy landscape with mountains and rivers",
     num_inference_steps=50,
     guidance_scale=7.5,
-    seed=42
+    seed=42,
+    enable_profiling=True  # Enable FLOPs/MACs calculation
 )
+
+# View compute statistics
+if profiling_data and profiling_data.get("enabled"):
+    print(f"Parameters: {profiling_data['params_str']}")
+    print(f"Total FLOPs: {profiling_data['total_flops_str']}")
+    print(f"Inference Time: {profiling_data['inference_time_str']}")
 ```
+
+See `docs/PROFILING.md` for detailed documentation on compute profiling.
 
 #### Option 3: Closed-Source API Usage
 
@@ -227,10 +237,13 @@ image-generation-case-study/
 │   ├── config.py                 # Model configurations
 │   ├── model_manager.py          # Model loading & caching
 │   ├── inference.py              # Generation logic
+│   ├── compute_profiler.py       # FLOPs/MACs profiling utilities
 │   ├── api_clients.py            # Closed-source API clients
 │   ├── closed_source_widget.py   # Gradio widget for APIs
 │   ├── utils.py                  # Utility functions
 │   └── README.md                 # Detailed documentation
+├── docs/                         # Documentation
+│   └── PROFILING.md              # Compute profiling guide
 ├── outputs/                      # Generated images (organized by timestamp)
 ├── libs/                         # Reference libraries
 │   ├── diffusers/
@@ -238,6 +251,8 @@ image-generation-case-study/
 │   └── ...
 ├── requirements.txt              # Python dependencies (base)
 ├── requirements_api.txt          # API dependencies (optional)
+├── example_generate.py           # Example usage
+├── example_profiling.py          # Profiling examples
 ├── .env.example                  # Environment variable template
 ├── run.py                        # Launcher script (requires --dev or --bench)
 └── README.md                     # This file
@@ -295,6 +310,33 @@ image-generation-case-study/
 - **Seed Control**: Fixed or random (-1)
 - **Negative Prompts**: Supported on compatible models
 
+### Compute Profiling (NEW!)
+
+Measure the computational cost of different models during inference:
+
+- **FLOPs** (Floating Point Operations): Total compute operations
+- **MACs** (Multiply-Accumulate Operations): Number of multiply-add operations
+- **Parameters**: Model size (number of parameters)
+- **Inference Time**: Actual wall-clock generation time
+- **Throughput**: TFLOP/s (computational efficiency)
+
+**Quick Example:**
+
+```bash
+# Run profiling examples
+python example_profiling.py
+```
+
+**Features:**
+
+- ✅ Automatic profiling during generation (enabled by default)
+- 📊 Profiling data saved in JSON config files
+- 🔍 Compare compute cost across models
+- ⚡ Minimal overhead (~1-2% slowdown)
+- 📈 Analyze impact of resolution and steps on compute
+
+**Learn More:** See [`docs/PROFILING.md`](docs/PROFILING.md) for detailed documentation and advanced usage.
+
 ### Multi-GPU Support
 
 The application automatically detects and utilizes multiple GPUs when available:
@@ -332,7 +374,7 @@ Images are automatically organized by timestamp:
 Each generation batch includes:
 
 - Multiple PNG image files (one per model)
-- Single JSON config file with all generation parameters and model information
+- Single JSON config file with all generation parameters, model information, and compute profiling data (FLOPs, MACs, inference time)
 
 ## Citation
 

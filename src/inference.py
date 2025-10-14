@@ -7,15 +7,16 @@ from typing import Dict, List, Tuple, Optional, Callable
 from PIL import Image
 import traceback
 import os
+import time
 from diffusers import EulerDiscreteScheduler
 from diffusers.pipelines.stable_cascade.pipeline_stable_cascade import StableCascadeDecoderPipeline
-from diffusers.pipelines.stable_cascade.pipeline_stable_cascade_prior import StableCascadePriorPipeline
 import importlib
 
 
 from src.model_manager import get_model_manager
-from src.config import MODELS, DEFAULT_CONFIG, LOCAL_MODEL_DIR
+from src.config import MODELS, DEFAULT_CONFIG, ENABLE_COMPUTE_PROFILING
 from src.utils import save_image, seed_everything, get_timestamp_output_dir, save_generation_config
+from src.compute_profiler import create_profiler
 from pathlib import Path
 
 
@@ -32,8 +33,14 @@ def generate_image(
     progress_callback: Optional[Callable] = None,
     output_dir: Optional[Path] = None,
     model_manager = None,
-) -> Tuple[Optional[Image.Image], str, int]:
-    """Generate a single image with a specific model."""
+    enable_profiling: Optional[bool] = None,
+) -> Tuple[Optional[Image.Image], str, int, Optional[Dict]]:
+    """Generate a single image with a specific model.
+    
+    Returns:
+        Tuple of (image, filepath, seed_used, profiling_data)
+        profiling_data is None if profiling is disabled
+    """
     manager = model_manager if model_manager is not None else get_model_manager()
     model_config = MODELS.get(model_id, {})
 
@@ -43,22 +50,30 @@ def generate_image(
     width = width or DEFAULT_CONFIG["width"]
     height = height or DEFAULT_CONFIG["height"]
     seed_used = seed_everything(seed)
+    
+    # Enable profiling by default from config
+    if enable_profiling is None:
+        enable_profiling = DEFAULT_CONFIG.get("enable_profiling", ENABLE_COMPUTE_PROFILING)
 
     # Create output directory if not provided
     if output_dir is None:
         output_dir = get_timestamp_output_dir()
+    
+    # Initialize profiler
+    profiler = create_profiler(enabled=enable_profiling)
+    profiling_data = None
 
     try:
         pipe = manager.get_pipeline(model_id) or manager.load_model(model_id)
         
-        # Set scheduler if specified
+        # Override scheduler if explicitly specified (overrides unified scheduler)
         if scheduler and hasattr(pipe, "scheduler"):
             try:
                 scheduler_class = getattr(importlib.import_module("diffusers.schedulers"), scheduler)
                 pipe.scheduler = scheduler_class.from_config(pipe.scheduler.config)
-                print(f"Using custom scheduler: {scheduler}")
+                print(f"Using custom scheduler override: {scheduler}")
             except (ImportError, AttributeError):
-                print(f"Warning: Could not find or load scheduler '{scheduler}'. Using model's default.")
+                print(f"Warning: Could not find or load scheduler '{scheduler}'. Using unified scheduler.")
 
         if progress_callback:
             progress_callback(f"Generating with {model_config.get('short_name', model_id)}...", 0, 1)
@@ -88,39 +103,58 @@ def generate_image(
             gen_kwargs["negative_prompt"] = negative_prompt
 
         if isinstance(pipe, StableCascadeDecoderPipeline):
-            prior_model_path = os.path.join(LOCAL_MODEL_DIR, "stabilityai/stable-cascade-prior")
-            if not os.path.exists(prior_model_path):
-                prior_model_path = "stabilityai/stable-cascade-prior"
-
-            prior_pipeline = StableCascadePriorPipeline.from_pretrained(
-                prior_model_path, torch_dtype=pipe.dtype, device_map="balanced"
+            prompt_embeds = manager.get_stable_cascade_prior_embeddings(
+                pipe, prompt, negative_prompt, seed_used
             )
-            prompt_embeds = prior_pipeline(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                generator=torch.Generator(device="cpu").manual_seed(seed_used),
-                num_inference_steps=20,
-                guidance_scale=4.0,
-            ).image_embeddings
             gen_kwargs["image_embeddings"] = prompt_embeds
             gen_kwargs.pop("width", None)
             gen_kwargs.pop("height", None)
             gen_kwargs.pop("guidance_scale", None)
+        
+        # Profile compute cost before generation
+        if enable_profiling:
+            input_shape = (1, 3, height, width)  # Batch size 1, RGB image
+            profiling_data = profiler.profile_pipeline(
+                pipe=pipe,
+                input_shape=input_shape,
+                num_inference_steps=num_inference_steps,
+                model_id=model_id,
+            )
+            
+            # Print profiling summary
+            if profiling_data.get("enabled"):
+                print(f"\n📊 Compute Profile for {model_config.get('short_name', model_id)}:")
+                print(f"   Parameters: {profiling_data.get('params_str', 'N/A')}")
+                print(f"   FLOPs (total): {profiling_data.get('total_flops_str', 'N/A')}")
+                print(f"   MACs (total): {profiling_data.get('total_macs_str', 'N/A')}")
+                print(f"   FLOPs/step: {profiling_data.get('flops_per_step_str', 'N/A')}")
+                print(f"   MACs/step: {profiling_data.get('macs_per_step_str', 'N/A')}")
+                print(f"   Steps: {profiling_data.get('num_inference_steps', 'N/A')}\n")
 
+        # Measure actual inference time
+        start_time = time.time()
         image = pipe(**gen_kwargs).images[0]
+        inference_time = time.time() - start_time
+        
+        # Add inference time to profiling data
+        if profiling_data:
+            profiling_data["inference_time_seconds"] = inference_time
+            profiling_data["inference_time_str"] = f"{inference_time:.2f}s"
+            print(f"⏱️  Inference time: {profiling_data['inference_time_str']}")
+        
         filepath = save_image(image, model_id, seed_used, output_dir)
 
         if progress_callback:
             progress_callback(f"✓ Completed {model_config.get('short_name', model_id)}", 0, 1)
 
-        return image, filepath, seed_used
+        return image, filepath, seed_used, profiling_data
     except Exception as e:
         error_msg = f"Error generating with {model_id}: {str(e)}"
         print(error_msg)
         print(traceback.format_exc())
         if progress_callback:
             progress_callback(f"✗ Failed: {model_config.get('short_name', model_id)}", 0, 1)
-        return None, error_msg, seed_used
+        return None, error_msg, seed_used, None
 
 
 def generate_images_sequential(
@@ -158,7 +192,7 @@ def generate_images_sequential(
             model_name = MODELS.get(model_id, {}).get('short_name', model_id)
             progress_callback(f"Processing: {model_name}", i + 1, len(model_ids))
 
-        image, filepath, seed_used = generate_image(
+        image, filepath, seed_used, profiling_data = generate_image(
             model_id=model_id, prompt=prompt, negative_prompt=negative_prompt,
             num_inference_steps=num_inference_steps, guidance_scale=guidance_scale,
             width=width, height=height, seed=base_seed, scheduler=scheduler,
@@ -170,12 +204,32 @@ def generate_images_sequential(
         
         # Collect model info for config
         if image is not None:
-            model_results.append({
+            model_info = {
                 "model_id": model_id,
                 "model_name": MODELS.get(model_id, {}).get("short_name", model_id),
                 "image_path": filepath,
                 "seed_used": seed_used,
-            })
+            }
+            
+            # Add profiling data if available
+            if profiling_data and profiling_data.get("enabled"):
+                model_info["compute_profile"] = {
+                    "total_params": profiling_data.get("total_params"),
+                    "params_str": profiling_data.get("params_str"),
+                    "total_flops": profiling_data.get("total_flops"),
+                    "total_flops_str": profiling_data.get("total_flops_str"),
+                    "total_macs": profiling_data.get("total_macs"),
+                    "total_macs_str": profiling_data.get("total_macs_str"),
+                    "flops_per_step": profiling_data.get("flops_per_step"),
+                    "flops_per_step_str": profiling_data.get("flops_per_step_str"),
+                    "macs_per_step": profiling_data.get("macs_per_step"),
+                    "macs_per_step_str": profiling_data.get("macs_per_step_str"),
+                    "inference_time_seconds": profiling_data.get("inference_time_seconds"),
+                    "inference_time_str": profiling_data.get("inference_time_str"),
+                    "model_component": profiling_data.get("model_component"),
+                }
+            
+            model_results.append(model_info)
 
     # Save generation config JSON
     config_data = {
@@ -274,7 +328,7 @@ def generate_all_models_sequential(
                 progress_callback(f"[{i+1}/{len(model_ids)}] Generating: {model_name}", i + 1, len(model_ids))
             
             # Generate image
-            image, filepath, seed_used = generate_image(
+            image, filepath, seed_used, profiling_data = generate_image(
                 model_id=model_id, 
                 prompt=prompt, 
                 negative_prompt=negative_prompt,
@@ -293,12 +347,32 @@ def generate_all_models_sequential(
             
             # Collect model info for config
             if image is not None:
-                model_results.append({
+                model_info = {
                     "model_id": model_id,
                     "model_name": MODELS.get(model_id, {}).get("short_name", model_id),
                     "image_path": filepath,
                     "seed_used": seed_used,
-                })
+                }
+                
+                # Add profiling data if available
+                if profiling_data and profiling_data.get("enabled"):
+                    model_info["compute_profile"] = {
+                        "total_params": profiling_data.get("total_params"),
+                        "params_str": profiling_data.get("params_str"),
+                        "total_flops": profiling_data.get("total_flops"),
+                        "total_flops_str": profiling_data.get("total_flops_str"),
+                        "total_macs": profiling_data.get("total_macs"),
+                        "total_macs_str": profiling_data.get("total_macs_str"),
+                        "flops_per_step": profiling_data.get("flops_per_step"),
+                        "flops_per_step_str": profiling_data.get("flops_per_step_str"),
+                        "macs_per_step": profiling_data.get("macs_per_step"),
+                        "macs_per_step_str": profiling_data.get("macs_per_step_str"),
+                        "inference_time_seconds": profiling_data.get("inference_time_seconds"),
+                        "inference_time_str": profiling_data.get("inference_time_str"),
+                        "model_component": profiling_data.get("model_component"),
+                    }
+                
+                model_results.append(model_info)
             
             if progress_callback:
                 model_name = MODELS.get(model_id, {}).get('short_name', model_id)

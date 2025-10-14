@@ -10,7 +10,7 @@ import json
 from PIL import Image
 from typing import List, Optional, Dict, Any
 from diffusers.utils import make_image_grid
-from src.config import MODELS
+from src.config import MODELS, FLOW_MATCHING_MODELS, DIFFUSION_MODELS, SPECIAL_SCHEDULER_MODELS, USE_UNIFIED_SCHEDULER
 
 
 def get_timestamp_output_dir(base_dir: str = "outputs") -> Path:
@@ -165,6 +165,40 @@ def estimate_memory_usage(model_id: str) -> str:
         vram_gb = params_data["params"] * 2
         return f"{vram_gb:.1f} GB"
     return "~Unknown"
+
+
+def get_scheduler_info() -> str:
+    """Get information about unified scheduler configuration."""
+    if not USE_UNIFIED_SCHEDULER:
+        return "ℹ️ Unified scheduler is disabled. Models use their original schedulers."
+    
+    info_lines = ["📅 **Unified Scheduler Configuration**", ""]
+    info_lines.append("**Flow Matching Models** → `FlowMatchEulerDiscreteScheduler` (shift=3.0)")
+    info_lines.append("")
+    for model_id in FLOW_MATCHING_MODELS:
+        short_name = MODELS.get(model_id, {}).get("short_name", model_id)
+        info_lines.append(f"  • {short_name}")
+    
+    info_lines.append("")
+    info_lines.append("**Diffusion Models** → `EulerDiscreteScheduler`")
+    info_lines.append("")
+    for model_id in DIFFUSION_MODELS:
+        short_name = MODELS.get(model_id, {}).get("short_name", model_id)
+        info_lines.append(f"  • {short_name}")
+    
+    if SPECIAL_SCHEDULER_MODELS:
+        info_lines.append("")
+        info_lines.append("**Special Models** → Keep original scheduler")
+        info_lines.append("")
+        for model_id in SPECIAL_SCHEDULER_MODELS:
+            short_name = MODELS.get(model_id, {}).get("short_name", model_id)
+            info_lines.append(f"  • {short_name}")
+    
+    info_lines.append("")
+    info_lines.append("---")
+    info_lines.append("💡 To disable unified scheduler, set `USE_UNIFIED_SCHEDULER = False` in `src/config.py`")
+    
+    return "\n".join(info_lines)
 
 
 def get_model_params_table() -> str:

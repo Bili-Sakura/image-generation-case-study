@@ -9,7 +9,7 @@ import torch
 from src.config import MODELS, DEFAULT_MODELS, DEFAULT_CONFIG, IMAGE_SIZE_PRESETS
 from src.model_manager import get_model_manager, initialize_default_models
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage, get_gpu_info, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table
+from src.utils import get_device, estimate_memory_usage, get_gpu_info, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table, get_scheduler_info
 from src.closed_source_widget import create_closed_source_widget, create_batch_api_interface
 
 
@@ -176,6 +176,10 @@ def create_ui() -> gr.Blocks:
         # Model Parameters Table
         with gr.Accordion("📋 Model Parameters & VRAM Reference", open=False):
             gr.Markdown(get_model_params_table())
+        
+        # Scheduler Configuration
+        with gr.Accordion("📅 Unified Scheduler Configuration", open=False):
+            gr.Markdown(get_scheduler_info())
         
         # Create tabs for open-source and closed-source models
         with gr.Tabs():

@@ -9,7 +9,7 @@ from typing import List, Tuple
 
 from src.config import MODELS, IMAGE_SIZE_PRESETS, DEFAULT_CONFIG
 from src.inference import generate_all_models_sequential
-from src.utils import get_device, get_gpu_info, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table
+from src.utils import get_device, get_gpu_info, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table, get_scheduler_info
 
 
 def generate_benchmark_all_models(
@@ -158,6 +158,10 @@ def create_bench_ui() -> gr.Blocks:
         # Model Parameters Table
         with gr.Accordion("📋 Model Parameters & VRAM Reference", open=False):
             gr.Markdown(get_model_params_table())
+        
+        # Scheduler Configuration
+        with gr.Accordion("📅 Unified Scheduler Configuration", open=False):
+            gr.Markdown(get_scheduler_info())
         
         # Available Models Info
         with gr.Accordion("📝 Benchmark Suite", open=True):

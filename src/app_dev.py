@@ -9,7 +9,7 @@ from typing import List
 from src.config import MODELS, IMAGE_SIZE_PRESETS, DEFAULT_CONFIG
 from src.model_manager import ModelManager
 from src.inference import generate_images_sequential
-from src.utils import get_device, estimate_memory_usage, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table
+from src.utils import get_device, estimate_memory_usage, get_gpu_vram_usage, create_and_save_image_grid, get_model_params_table, get_scheduler_info
 
 
 # Global model manager for developer mode
@@ -233,6 +233,10 @@ def create_dev_ui() -> gr.Blocks:
         # Model Parameters Table
         with gr.Accordion("📋 Model Parameters & VRAM Reference", open=False):
             gr.Markdown(get_model_params_table())
+        
+        # Scheduler Configuration
+        with gr.Accordion("📅 Unified Scheduler Configuration", open=False):
+            gr.Markdown(get_scheduler_info())
 
         with gr.Tabs():
             # Tab 1: Model Setup
