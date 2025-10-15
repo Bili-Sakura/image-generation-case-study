@@ -112,6 +112,12 @@ MODELS = {
         "requires_safety_checker": False,
         "pipeline_class": "Lumina2Pipeline",
     },
+    "stabilityai/stable-diffusion-3-5-large": {
+        "name": "Stable Diffusion 3.5 Large",
+        "short_name": "SD 3.5 Large",
+        "requires_safety_checker": False,
+        "pipeline_class": "StableDiffusion3Pipeline",
+    },
 }
 
 # Default models configuration (deprecated - no longer used since user mode was removed)
@@ -123,13 +129,13 @@ DEFAULT_MODELS = []
 FLOW_MATCHING_MODELS = [
     "black-forest-labs/FLUX.1-dev",
     "stabilityai/stable-diffusion-3-medium-diffusers",
+    "stabilityai/stable-diffusion-3-5-large",
     "Alpha-VLLM/Lumina-Next-SFT-diffusers",
     "Efficient-Large-Model/Sana_600M_512px_diffusers",
     "Efficient-Large-Model/SANA1.5_1.6B_1024px_diffusers",
     "Qwen/Qwen-Image",
     "Alpha-VLLM/Lumina-Image-2.0",
     "zai-org/CogView4-6B",
-    "HiDream-ai/HiDream-I1-Dev",
 ]
 
 DIFFUSION_MODELS = [
