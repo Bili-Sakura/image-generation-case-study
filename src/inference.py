@@ -8,7 +8,7 @@ from PIL import Image
 import traceback
 import os
 import time
-from diffusers import EulerDiscreteScheduler
+from diffusers import EulerDiscreteScheduler, KandinskyPipeline
 from diffusers.pipelines.stable_cascade.pipeline_stable_cascade import StableCascadeDecoderPipeline
 import importlib
 
@@ -34,6 +34,7 @@ def generate_image(
     output_dir: Optional[Path] = None,
     model_manager = None,
     enable_profiling: Optional[bool] = None,
+    pipe: Optional[Callable] = None,
 ) -> Tuple[Optional[Image.Image], str, int, Optional[Dict]]:
     """Generate a single image with a specific model.
     
@@ -60,11 +61,12 @@ def generate_image(
         output_dir = get_timestamp_output_dir()
     
     # Initialize profiler
-    profiler = create_profiler(enabled=enable_profiling)
+    profiler = create_profiler(enabled=True) if enable_profiling else None
     profiling_data = None
 
     try:
-        pipe = manager.get_pipeline(model_id) or manager.load_model(model_id)
+        if pipe is None:
+            pipe = manager.get_pipeline(model_id) or manager.load_model(model_id)
         
         # Override scheduler if explicitly specified (overrides unified scheduler)
         if scheduler and hasattr(pipe, "scheduler"):
@@ -110,6 +112,13 @@ def generate_image(
             gen_kwargs.pop("width", None)
             gen_kwargs.pop("height", None)
             gen_kwargs.pop("guidance_scale", None)
+        
+        if isinstance(pipe, KandinskyPipeline):
+            image_embeds, negative_image_embeds = manager.get_kandinsky_prior_embeddings(
+                pipe, prompt, negative_prompt, seed_used, guidance_scale
+            )
+            gen_kwargs["image_embeds"] = image_embeds
+            gen_kwargs["negative_image_embeds"] = negative_image_embeds
         
         # Profile compute cost before generation
         if enable_profiling:
@@ -169,8 +178,14 @@ def generate_images_sequential(
     scheduler: Optional[str] = None,
     progress_callback: Optional[Callable] = None,
     model_manager = None,
+    pipe: Optional[Callable] = None,
+    unload_after_inference: bool = False,
 ) -> List[Tuple[str, Optional[Image.Image], str, int]]:
-    """Generate images sequentially with multiple models."""
+    """Generate images sequentially with multiple models.
+    
+    Args:
+        unload_after_inference: If True, unload each model after inference to free memory.
+    """
     from datetime import datetime
     
     base_seed = seed_everything(-1) if seed == -1 else seed
@@ -183,6 +198,9 @@ def generate_images_sequential(
     guidance_scale = guidance_scale or DEFAULT_CONFIG["guidance_scale"]
     width = width or DEFAULT_CONFIG["width"]
     height = height or DEFAULT_CONFIG["height"]
+    
+    # Get model manager instance for unloading
+    manager = model_manager if model_manager is not None else get_model_manager()
     
     results = []
     model_results = []
@@ -198,9 +216,18 @@ def generate_images_sequential(
             width=width, height=height, seed=base_seed, scheduler=scheduler,
             progress_callback=None,  # Avoid nested callbacks
             output_dir=output_dir,
-            model_manager=model_manager,
+            model_manager=manager,
+            pipe=pipe,
         )
         results.append((model_id, image, filepath, seed_used))
+        
+        # Unload model after inference if requested (for benchmark mode)
+        if unload_after_inference and image is not None:
+            if progress_callback:
+                model_name = MODELS.get(model_id, {}).get('short_name', model_id)
+                progress_callback(f"Unloading: {model_name}", i + 1, len(model_ids))
+            manager.unload_model(model_id)
+            print(f"🗑️  Freed memory for: {MODELS.get(model_id, {}).get('short_name', model_id)}")
         
         # Collect model info for config
         if image is not None:
@@ -292,123 +319,18 @@ def generate_all_models_sequential(
     Returns:
         List of (model_id, image, filepath, seed_used) tuples
     """
-    from datetime import datetime
-    
-    # Get all available model IDs
     model_ids = list(MODELS.keys())
     
-    base_seed = seed_everything(-1) if seed == -1 else seed
-    
-    # Create single timestamp directory for all outputs
-    output_dir = get_timestamp_output_dir()
-    
-    # Use defaults if not provided
-    num_inference_steps = num_inference_steps or DEFAULT_CONFIG["num_inference_steps"]
-    guidance_scale = guidance_scale or DEFAULT_CONFIG["guidance_scale"]
-    width = width or DEFAULT_CONFIG["width"]
-    height = height or DEFAULT_CONFIG["height"]
-    
-    results = []
-    model_results = []
-    
-    # Create a dedicated model manager for batch processing
-    model_manager = get_model_manager()
-
-    for i, model_id in enumerate(model_ids):
-        if progress_callback:
-            model_name = MODELS.get(model_id, {}).get('short_name', model_id)
-            progress_callback(f"[{i+1}/{len(model_ids)}] Loading: {model_name}", i + 1, len(model_ids))
-
-        try:
-            # Load the model
-            model_manager.load_model(model_id, force_reload=False)
-            
-            if progress_callback:
-                model_name = MODELS.get(model_id, {}).get('short_name', model_id)
-                progress_callback(f"[{i+1}/{len(model_ids)}] Generating: {model_name}", i + 1, len(model_ids))
-            
-            # Generate image
-            image, filepath, seed_used, profiling_data = generate_image(
-                model_id=model_id, 
-                prompt=prompt, 
-                negative_prompt=negative_prompt,
-                num_inference_steps=num_inference_steps, 
-                guidance_scale=guidance_scale,
-                width=width, 
-                height=height, 
-                seed=base_seed, 
-                scheduler=scheduler,
-                progress_callback=None,  # Avoid nested callbacks
-                output_dir=output_dir,
-                model_manager=model_manager,
-            )
-            
-            results.append((model_id, image, filepath, seed_used))
-            
-            # Collect model info for config
-            if image is not None:
-                model_info = {
-                    "model_id": model_id,
-                    "model_name": MODELS.get(model_id, {}).get("short_name", model_id),
-                    "image_path": filepath,
-                    "seed_used": seed_used,
-                }
-                
-                # Add profiling data if available
-                if profiling_data and profiling_data.get("enabled"):
-                    model_info["compute_profile"] = {
-                        "total_params": profiling_data.get("total_params"),
-                        "params_str": profiling_data.get("params_str"),
-                        "total_flops": profiling_data.get("total_flops"),
-                        "total_flops_str": profiling_data.get("total_flops_str"),
-                        "total_macs": profiling_data.get("total_macs"),
-                        "total_macs_str": profiling_data.get("total_macs_str"),
-                        "flops_per_step": profiling_data.get("flops_per_step"),
-                        "flops_per_step_str": profiling_data.get("flops_per_step_str"),
-                        "macs_per_step": profiling_data.get("macs_per_step"),
-                        "macs_per_step_str": profiling_data.get("macs_per_step_str"),
-                        "inference_time_seconds": profiling_data.get("inference_time_seconds"),
-                        "inference_time_str": profiling_data.get("inference_time_str"),
-                        "model_component": profiling_data.get("model_component"),
-                    }
-                
-                model_results.append(model_info)
-            
-            if progress_callback:
-                model_name = MODELS.get(model_id, {}).get('short_name', model_id)
-                progress_callback(f"[{i+1}/{len(model_ids)}] Unloading: {model_name}", i + 1, len(model_ids))
-            
-            # Unload the model to free memory
-            model_manager.unload_model(model_id)
-            
-        except Exception as e:
-            error_msg = f"Error with {model_id}: {str(e)}"
-            print(error_msg)
-            results.append((model_id, None, error_msg, base_seed))
-            # Try to unload even if there was an error
-            try:
-                model_manager.unload_model(model_id)
-            except:
-                pass
-
-    # Save generation config JSON
-    config_data = {
-        "timestamp": datetime.now().isoformat(),
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
-        "parameters": {
-            "num_inference_steps": num_inference_steps,
-            "guidance_scale": guidance_scale,
-            "width": width,
-            "height": height,
-            "seed": base_seed,
-            "scheduler": scheduler,
-        },
-        "models": model_results,
-        "output_directory": str(output_dir),
-        "mode": "benchmark_all_models",
-    }
-    
-    save_generation_config(output_dir, config_data)
-
-    return results
+    return generate_images_sequential(
+        model_ids=model_ids,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        width=width,
+        height=height,
+        seed=seed,
+        scheduler=scheduler,
+        progress_callback=progress_callback,
+        unload_after_inference=True,  # Enable unload for benchmark mode
+    )

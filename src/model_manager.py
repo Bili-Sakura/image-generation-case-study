@@ -7,7 +7,7 @@ import os
 from typing import Dict, List, Optional
 import json
 import importlib
-from diffusers import DiffusionPipeline
+from diffusers import DiffusionPipeline, KandinskyPipeline, KandinskyPriorPipeline
 from diffusers.pipelines.lumina.pipeline_lumina import LuminaPipeline
 from diffusers.pipelines.stable_cascade.pipeline_stable_cascade import StableCascadeDecoderPipeline
 from diffusers.pipelines.stable_cascade.pipeline_stable_cascade_prior import StableCascadePriorPipeline
@@ -131,6 +131,10 @@ class ModelManager:
         # Determine whether to use device_map
         use_device_map_now = self.use_device_map if use_device_map_override is None else use_device_map_override
         
+        # CogView4-6B must be loaded on a single device
+        if model_id == "zai-org/CogView4-6B":
+            use_device_map_now = False
+        
         try:
             local_model_path = self._get_local_model_path(model_id)
 
@@ -145,52 +149,46 @@ class ModelManager:
             if use_device_map_now:
                 load_kwargs["device_map"] = "balanced"
             
-            try:
-                if model_id == "zai-org/CogView4-6B":
-                    pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs).to(self.device)
-                else:
-                    pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
-            except (AttributeError, TypeError, NotImplementedError) as e:
-                # Some models don't work well with device_map, or accelerate is not installed
-                # Fallback to regular loading
-                if use_device_map_now and ("device_map" in str(e) or "_parameters" in str(e) or "accelerate" in str(e)):
-                    print(f"⚠️  device_map failed for {model_id}, retrying without device_map...")
-                    load_kwargs.pop("device_map", None)
-                    pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
-                    use_device_map_now = False
-                else:
-                    raise
-            
-            # Apply unified scheduler (EulerDiscreteScheduler or FlowMatchEulerDiscreteScheduler)
-            self._apply_unified_scheduler(pipe, model_id)
+            pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
 
-            if not use_device_map_now and model_id != "zai-org/CogView4-6B":
-                pipe = pipe.to(self.device)
+        except (AttributeError, TypeError, NotImplementedError) as e:
+            # Some models don't work well with device_map, or accelerate is not installed
+            # Fallback to regular loading
+            if use_device_map_now and ("device_map" in str(e) or "_parameters" in str(e) or "accelerate" in str(e)):
+                print(f"⚠️  device_map failed for {model_id}, retrying without device_map...")
+                load_kwargs.pop("device_map", None)
+                pipe = pipeline_class.from_pretrained(local_model_path, **load_kwargs)
+                use_device_map_now = False
+            else:
+                raise
+        
+        # Apply unified scheduler (EulerDiscreteScheduler or FlowMatchEulerDiscreteScheduler)
+        self._apply_unified_scheduler(pipe, model_id)
 
-            # Disable safety checker if not required
-            if not self.model_configs[model_id].get("requires_safety_checker", False) and hasattr(pipe, "safety_checker"):
-                pipe.safety_checker = None
-            
-            if model_id == "zai-org/CogView4-6B":
-                print("Applying CogView4-specific optimizations...")
-                pipe.enable_model_cpu_offload()
-                if hasattr(pipe, "vae"):
-                    pipe.vae.enable_slicing()
-                    pipe.vae.enable_tiling()
-            elif model_id in ["Alpha-VLLM/Lumina-Image-2.0", "HiDream-ai/HiDream-I1-Dev"]:
-                print(f"Applying optimizations for {model_id}...")
-                if not use_device_map_now:  # Only apply CPU offload if not using device_map
-                    pipe.enable_model_cpu_offload()
-                if hasattr(pipe, "vae"):
-                    pipe.vae.enable_slicing()
-                    pipe.vae.enable_tiling()
+        if not use_device_map_now:
+            pipe = pipe.to(self.device)
 
-            self.loaded_models[model_id] = pipe
-            print(f"✓ Successfully loaded: {model_id}")
-            return pipe
-        except Exception as e:
-            print(f"✗ Failed to load {model_id}: {str(e)}")
-            raise
+        # Disable safety checker if not required
+        if not self.model_configs[model_id].get("requires_safety_checker", False) and hasattr(pipe, "safety_checker"):
+            pipe.safety_checker = None
+        
+        # if model_id == "zai-org/CogView4-6B":
+        #     print("Applying CogView4-specific optimizations...")
+        #     pipe.enable_model_cpu_offload()
+        #     if hasattr(pipe, "vae"):
+        #         pipe.vae.enable_slicing()
+        #         pipe.vae.enable_tiling()
+        # elif model_id in ["Alpha-VLLM/Lumina-Image-2.0", "HiDream-ai/HiDream-I1-Full"]:
+        #     print(f"Applying optimizations for {model_id}...")
+        #     if not use_device_map_now:  
+        #         pipe.enable_model_cpu_offload()
+        #     if hasattr(pipe, "vae"):
+        #         pipe.vae.enable_slicing()
+        #         pipe.vae.enable_tiling()
+
+        self.loaded_models[model_id] = pipe
+        print(f"✓ Successfully loaded: {model_id}")
+        return pipe
 
     def load_models(self, model_ids: List[str]) -> Dict[str, DiffusionPipeline]:
         """Load multiple models."""
@@ -275,6 +273,42 @@ class ModelManager:
         ).image_embeddings
         
         return prompt_embeds
+
+    def get_kandinsky_prior_embeddings(
+        self,
+        pipe: KandinskyPipeline,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+        guidance_scale: float,
+    ):
+        """Load Kandinsky prior pipeline and generate image embeddings."""
+        prior_model_path = os.path.join(self.local_model_dir, "kandinsky-community/kandinsky-2-1-prior")
+        if not os.path.exists(prior_model_path):
+            prior_model_path = "kandinsky-community/kandinsky-2-1-prior"
+
+        try:
+            prior_pipeline = KandinskyPriorPipeline.from_pretrained(
+                prior_model_path, torch_dtype=pipe.dtype, device_map="balanced"
+            )
+        except (NotImplementedError, TypeError, Exception) as e:
+            if "accelerate" in str(e) or "device_map" in str(e) or "_parameters" in str(e):
+                print(f"⚠️  Loading Kandinsky prior without device_map...")
+                prior_pipeline = KandinskyPriorPipeline.from_pretrained(
+                    prior_model_path, torch_dtype=pipe.dtype
+                ).to(self.device)
+            else:
+                raise
+        
+        prompt_embeds = prior_pipeline(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            generator=torch.Generator(device="cpu").manual_seed(seed),
+            num_inference_steps=25,
+            guidance_scale=guidance_scale,
+        )
+        
+        return prompt_embeds.image_embeds, prompt_embeds.negative_image_embeds
 
 
 # Global model manager instance

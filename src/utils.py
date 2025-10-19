@@ -42,7 +42,7 @@ def save_image(
     safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in model_short_name)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    filepath = output_dir / f"{safe_name}_{timestamp}_seed{seed}.png"
+    filepath = output_dir / f"{safe_name}.png"
     image.save(filepath)
     
     return str(filepath)
