@@ -3,7 +3,7 @@ Test script for the simplified compute profiler.
 Run from project root: python -m src.profiler.test_profiler
 """
 
-from .profiler import create_profiler
+from src.profiler import create_profiler
 
 def test_model_discovery():
     """Test model discovery from directory."""
